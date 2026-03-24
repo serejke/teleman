@@ -12,6 +12,7 @@ class ChatMeta(BaseModel):
     type: str  # "user", "group", "channel"
     username: str | None = None
     megagroup: bool = False
+    forum: bool = False
     participants_count: int | None = None
     exported_at: datetime
     updated_at: datetime
@@ -37,6 +38,7 @@ class ChatMeta(BaseModel):
             type=chat_type,
             username=getattr(obj, "username", None),
             megagroup=getattr(obj, "megagroup", False) or False,
+            forum=getattr(obj, "forum", False) or False,
             participants_count=getattr(obj, "participants_count", None),
             exported_at=ts,
             updated_at=ts,
@@ -149,6 +151,7 @@ class ExportedMessage(BaseModel):
     date: datetime
     text: str | None = None
     reply_to_msg_id: int | None = None
+    topic_id: int | None = None
     forward_from_id: int | None = None
     forward_from_name: str | None = None
     media: MediaInfo | None = None
@@ -156,9 +159,28 @@ class ExportedMessage(BaseModel):
     edit_date: datetime | None = None
 
     @classmethod
-    def from_telethon(cls, obj: Any) -> ExportedMessage:
+    def from_telethon(
+        cls,
+        obj: Any,
+        *,
+        topic_root_ids: set[int] | None = None,
+    ) -> ExportedMessage:
         reply_to = getattr(obj, "reply_to", None)
         reply_to_msg_id = getattr(reply_to, "reply_to_msg_id", None) if reply_to else None
+        topic_id: int | None = None
+        if reply_to is not None and getattr(reply_to, "forum_topic", False):
+            top_id = getattr(reply_to, "reply_to_top_id", None)
+            if top_id is not None:
+                topic_id = top_id
+            else:
+                # First message in a topic: reply_to_msg_id IS the topic id
+                topic_id = reply_to_msg_id
+        elif topic_root_ids is not None:
+            # Forum group but no reply_to or non-topic reply: default to General
+            if obj.id in topic_root_ids:
+                topic_id = obj.id  # This message creates its own topic
+            else:
+                topic_id = 1  # Default "General" topic
 
         fwd_from_id, fwd_from_name = _extract_forward_from(getattr(obj, "forward", None))
 
@@ -169,11 +191,28 @@ class ExportedMessage(BaseModel):
             date=obj.date,
             text=getattr(obj, "text", None),
             reply_to_msg_id=reply_to_msg_id,
+            topic_id=topic_id,
             forward_from_id=fwd_from_id,
             forward_from_name=fwd_from_name,
             media=_extract_media(getattr(obj, "media", None)),
             entities=_extract_entities(getattr(obj, "entities", None)),
             edit_date=getattr(obj, "edit_date", None),
+        )
+
+
+class ForumTopic(BaseModel):
+    id: int
+    title: str
+    icon_emoji_id: int | None = None
+    closed: bool = False
+
+    @classmethod
+    def from_telethon(cls, obj: Any) -> ForumTopic:
+        return cls(
+            id=obj.id,
+            title=obj.title,
+            icon_emoji_id=getattr(obj, "icon_emoji_id", None),
+            closed=getattr(obj, "closed", False) or False,
         )
 
 

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from teleman.client import TelemanClient
-from teleman.export.models import ExportedMessage, ExportState
+from teleman.export.models import ExportedMessage, ExportState, ForumTopic
 from teleman.export.resolver import resolve_chat
 from teleman.export.storage import (
     append_messages,
@@ -13,9 +13,45 @@ from teleman.export.storage import (
     read_state,
     write_meta,
     write_state,
+    write_topics,
 )
 
 BATCH_SIZE = 100
+
+
+async def _fetch_forum_topics(
+    client: TelemanClient,
+    entity: object,
+) -> list[ForumTopic]:
+    from telethon.tl.functions.messages import GetForumTopicsRequest
+
+    topics: list[ForumTopic] = []
+    offset_date: datetime | None = None
+    offset_id = 0
+    offset_topic = 0
+
+    while True:
+        result = await client.raw(
+            GetForumTopicsRequest(
+                peer=entity,
+                offset_date=offset_date,
+                offset_id=offset_id,
+                offset_topic=offset_topic,
+                limit=100,
+            )
+        )
+        for t in result.topics:
+            topics.append(ForumTopic.from_telethon(t))
+
+        if not result.topics or len(topics) >= result.count:
+            break
+
+        last = result.topics[-1]
+        offset_date = last.date
+        offset_id = last.top_message
+        offset_topic = last.id
+
+    return topics
 
 
 async def export_chat(
@@ -37,12 +73,19 @@ async def export_chat(
     min_id = state.last_message_id if state else 0
     prior_total = state.total_messages if state else 0
 
+    # Fetch forum topics before iterating messages so we can tag each message
+    topics: list[ForumTopic] = []
+    topic_root_ids: set[int] | None = None
+    if meta.forum:
+        topics = await _fetch_forum_topics(client, entity)
+        topic_root_ids = {t.id for t in topics}
+
     batch: list[ExportedMessage] = []
     count = 0
     last_id = min_id
 
     async for msg in client.raw.iter_messages(entity, reverse=True, min_id=min_id):
-        exported = ExportedMessage.from_telethon(msg)
+        exported = ExportedMessage.from_telethon(msg, topic_root_ids=topic_root_ids)
         batch.append(exported)
         last_id = max(last_id, msg.id)
         count += 1
@@ -61,6 +104,9 @@ async def export_chat(
     now = datetime.now(tz=datetime.now().astimezone().tzinfo)
     meta.updated_at = now
     write_meta(chat_dir, meta)
+
+    if topics:
+        write_topics(chat_dir, topics)
 
     if count > 0 or state is None:
         write_state(

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from teleman.export.models import ChatMeta, ExportedMessage, ExportState
+from teleman.export.models import ChatMeta, ExportedMessage, ExportState, ForumTopic
 
 DATA_DIR_NAME = "data"
 EXPORTS_DIR_NAME = "exports"
 META_FILE = "meta.json"
 MESSAGES_FILE = "messages.jsonl"
 STATE_FILE = "state.json"
+TOPICS_FILE = "topics.json"
 
 
 def get_data_dir() -> Path:
@@ -43,6 +44,14 @@ def read_state(chat_dir: Path) -> ExportState | None:
     if not path.exists():
         return None
     return ExportState.model_validate_json(path.read_text())
+
+
+def write_topics(chat_dir: Path, topics: list[ForumTopic]) -> None:
+    path = chat_dir / TOPICS_FILE
+    import json
+
+    data = [t.model_dump() for t in topics]
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 def append_messages(chat_dir: Path, messages: list[ExportedMessage]) -> None:
