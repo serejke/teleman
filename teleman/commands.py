@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from teleman.client import TelemanClient
 from teleman.contacts import add_contact, get_peer, peer_name
 from teleman.export.exporter import export_chat as _export_chat
@@ -14,6 +16,8 @@ from teleman.responses import (
     ExportListItem,
     ExportListResponse,
     ExportResponse,
+    LinkItem,
+    LinksResponse,
     LockdownResponse,
     MessagesResponse,
     PrivacyResponse,
@@ -199,6 +203,31 @@ async def cmd_export_list(client: TelemanClient) -> ExportListResponse:
 async def cmd_export(client: TelemanClient, query: str) -> ExportResponse:
     title, count, incremental = await _export_chat(client, query)
     return ExportResponse(title=title, message_count=count, incremental=incremental)
+
+
+def cmd_links(
+    query: str,
+    *,
+    after: datetime | None = None,
+    before: datetime | None = None,
+) -> LinksResponse:
+    from analysis.loader import load_messages, resolve_chat
+    from teleman.links import extract_links
+
+    path = resolve_chat(query)
+    messages = load_messages(path)
+    extracted = extract_links(messages, after=after, before=before)
+    items = [
+        LinkItem(
+            url=link.url,
+            message_id=link.message_id,
+            date=link.date,
+            sender_id=link.sender_id,
+            sender_name=link.sender_name,
+        )
+        for link in extracted
+    ]
+    return LinksResponse(query=query, links=items, total=len(items))
 
 
 async def cmd_report(client: TelemanClient, user_id: int | str, reason_key: str, message: str = "") -> None:

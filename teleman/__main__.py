@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +125,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("export", help="Export chat history (incremental)")
     p.add_argument("chat", nargs="+", help="Chat name or ID")
 
+    p = sub.add_parser("links", help="Extract all links from an exported chat")
+    p.add_argument("chat", help="Chat ID, username, or title substring")
+    p.add_argument("--after", help="Only links after this date (YYYY-MM-DD)")
+    p.add_argument("--before", help="Only links before this date (YYYY-MM-DD)")
+
     return parser
 
 
@@ -167,6 +173,10 @@ async def _run_command(client: TelemanClient, args: argparse.Namespace) -> None:
     elif cmd == "export":
         query = " ".join(args.chat)
         _json_out(await commands.cmd_export(client, query))
+    elif cmd == "links":
+        after = datetime.strptime(args.after, "%Y-%m-%d") if args.after else None
+        before = datetime.strptime(args.before, "%Y-%m-%d") if args.before else None
+        _json_out(commands.cmd_links(args.chat, after=after, before=before))
 
 
 async def _run_settings(client: TelemanClient, args: argparse.Namespace) -> None:

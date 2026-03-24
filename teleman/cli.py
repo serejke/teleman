@@ -4,6 +4,7 @@ import asyncio
 import readline  # noqa: F401 — enables arrow-key history in input()
 import shutil
 import textwrap
+from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -78,6 +79,25 @@ def _button_count(raw_msg: Any) -> int:
 
 async def _input(prompt: str) -> str:
     return await asyncio.to_thread(input, prompt)
+
+
+def _parse_date_flags(args: list[str]) -> tuple[datetime | None, datetime | None, list[str]]:
+    """Parse --after and --before flags from args, return (after, before, remaining_args)."""
+    after = None
+    before = None
+    remaining: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--after" and i + 1 < len(args):
+            after = datetime.strptime(args[i + 1], "%Y-%m-%d")
+            i += 2
+        elif args[i] == "--before" and i + 1 < len(args):
+            before = datetime.strptime(args[i + 1], "%Y-%m-%d")
+            i += 2
+        else:
+            remaining.append(args[i])
+            i += 1
+    return after, before, remaining
 
 
 def _parse_user_id(raw: str) -> int | str:
@@ -433,6 +453,8 @@ async def run(client: TelemanClient) -> None:
                 print()
                 print("  /export_list              — list chats available for export")
                 print("  /export <chat>            — export chat history (incremental)")
+                print("  /links <chat> [--after YYYY-MM-DD] [--before YYYY-MM-DD]")
+                print("                            — extract all links from a chat")
                 print("  /quit                     — exit")
             elif cmd == "/me":
                 _print_me(await commands.cmd_me(client))
@@ -530,6 +552,20 @@ async def run(client: TelemanClient) -> None:
                     print(f'  Synced {count} new messages from "{title}"')
                 else:
                     print(f'  Exported {count} messages from "{title}"')
+            elif cmd == "/links":
+                if not args:
+                    print("Usage: /links <chat> [--after YYYY-MM-DD] [--before YYYY-MM-DD]")
+                    continue
+                link_after, link_before, link_peer_parts = _parse_date_flags(args)
+                if not link_peer_parts:
+                    print("Usage: /links <chat> [--after YYYY-MM-DD] [--before YYYY-MM-DD]")
+                    continue
+                link_peer = " ".join(link_peer_parts)
+
+                resp = commands.cmd_links(link_peer, after=link_after, before=link_before)
+                for item in resp.links:
+                    print(f"  {item.date:%Y-%m-%d %H:%M}  {item.url}")
+                print(f"  Total: {resp.total} links")
             else:
                 print(f"Unknown command: {cmd}. Type /help for usage.")
         except Exception as exc:

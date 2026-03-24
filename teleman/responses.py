@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from teleman.models import Message, User
@@ -89,3 +91,17 @@ class ExportResponse(BaseModel):
     title: str
     message_count: int
     incremental: bool
+
+
+class LinkItem(BaseModel):
+    url: str
+    message_id: int
+    date: datetime
+    sender_id: int | None = None
+    sender_name: str | None = None
+
+
+class LinksResponse(BaseModel):
+    query: str
+    links: list[LinkItem]
+    total: int
