@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime
-
 from analysis.loader import Message, load_messages, resolve_chat
 
 
@@ -45,15 +43,22 @@ def _format_message_text(msg: Message) -> str:
 
 
 def extract_user_messages(
-    messages: list[Message], user_name: str
+    messages: list[Message], user_query: str
 ) -> list[Message]:
-    """Filter messages by sender name (case-insensitive substring match)."""
-    query = user_name.lower()
-    # Try exact match first
+    """Filter messages by sender name or username (case-insensitive).
+
+    Supports: exact name, substring of name, or @username.
+    """
+    query = user_query.lower().lstrip("@")
+    # Try username match first (exact)
+    by_username = [m for m in messages if m.sender_username and m.sender_username.lower() == query]
+    if by_username:
+        return by_username
+    # Try exact name match
     exact = [m for m in messages if m.sender_name and m.sender_name.lower() == query]
     if exact:
         return exact
-    # Fall back to substring
+    # Fall back to substring of name
     return [m for m in messages if m.sender_name and query in m.sender_name.lower()]
 
 

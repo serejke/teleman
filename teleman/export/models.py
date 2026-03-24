@@ -148,6 +148,7 @@ class ExportedMessage(BaseModel):
     id: int
     sender_id: int | None = None
     sender_name: str | None = None
+    sender_username: str | None = None
     date: datetime
     text: str | None = None
     reply_to_msg_id: int | None = None
@@ -188,6 +189,7 @@ class ExportedMessage(BaseModel):
             id=obj.id,
             sender_id=getattr(obj, "sender_id", None),
             sender_name=_extract_sender_name(getattr(obj, "sender", None)),
+            sender_username=getattr(getattr(obj, "sender", None), "username", None),
             date=obj.date,
             text=getattr(obj, "text", None),
             reply_to_msg_id=reply_to_msg_id,
