@@ -8,10 +8,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from teleman.client import TelemanClient
-from teleman.contacts import add_contact, get_peer, get_user, peer_name
-from teleman.export.exporter import export_chat
-from teleman.export.resolver import list_dialogs
-from teleman.messages import delete_all_messages, delete_dialog, get_raw_messages, send_message
+from teleman.contacts import get_peer, peer_name
+from teleman.messages import get_raw_messages, send_message
 from teleman.models import Group, Message, User
 
 
@@ -45,12 +43,6 @@ def _format_message(msg: Message, my_name: str, sender_name: str, width: int) ->
 
 
 def _get_button_rows(raw_msg: Any) -> list[list[Any]] | None:
-    """Extract button rows from a message, falling back to reply_markup if needed.
-
-    Telethon's message.buttons can return None in groups when input_chat
-    or the bot sender can't be resolved. Fall back to reply_markup.rows
-    which is always available on the raw message object.
-    """
     buttons = getattr(raw_msg, "buttons", None)
     if buttons:
         return buttons
@@ -89,7 +81,6 @@ async def _input(prompt: str) -> str:
 
 
 def _parse_user_id(raw: str) -> int | str:
-    """Parse a user identifier: numeric ID or @username."""
     try:
         return int(raw)
     except ValueError:
@@ -97,11 +88,6 @@ def _parse_user_id(raw: str) -> int | str:
 
 
 def _parse_tme_link(raw: str) -> tuple[str, str | None] | None:
-    """Parse a t.me deep link, returning (username, start_param | None).
-
-    Supports https://t.me/bot?start=param and http://t.me/bot?start=param.
-    Returns None if the input is not a t.me link.
-    """
     try:
         parsed = urlparse(raw)
     except ValueError:
@@ -115,6 +101,104 @@ def _parse_tme_link(raw: str) -> tuple[str, str | None] | None:
     qs = parse_qs(parsed.query)
     start_param = qs.get("start", [None])[0]
     return username, start_param
+
+
+# --- Formatting helpers for REPL display of response models ---
+
+
+def _print_me(user: User) -> None:
+    name = user.first_name
+    if user.last_name:
+        name += f" {user.last_name}"
+    print(f"  Name:     {name}")
+    print(f"  ID:       {user.id}")
+    print(f"  Phone:    {user.phone or 'N/A'}")
+    print(f"  Username: @{user.username}" if user.username else "  Username: N/A")
+    print(f"  Premium:  {'Yes' if user.premium else 'No'}")
+
+
+def _print_chats(resp: Any) -> None:
+    for c in resp.chats:
+        username_str = f" @{c.username}" if c.username else ""
+        unread = f" [{c.unread_count} unread]" if c.unread_count else ""
+        print(f"  {c.id}{username_str} ({c.type}){unread}")
+
+
+def _print_contacts(resp: Any) -> None:
+    for u in resp.contacts:
+        name = u.first_name
+        if u.last_name:
+            name += f" {u.last_name}"
+        username_str = f" @{u.username}" if u.username else ""
+        print(f"  {u.id}: {name}{username_str}")
+
+
+def _print_privacy(resp: Any, *, hint: bool = False) -> None:
+    for r in resp.rules:
+        print(f"  {r.label:20s} {r.level}")
+    if hint:
+        print("  Tip: use /settings for an overview")
+
+
+def _print_lockdown(resp: Any) -> None:
+    for r in resp.rules:
+        if r.error:
+            print(f"  {r.label:20s} SKIPPED ({r.error})")
+        else:
+            print(f"  {r.label:20s} {r.level}")
+
+
+def _print_sessions(resp: Any, *, hint: bool = False) -> None:
+    for s in resp.sessions:
+        current_marker = " (current)" if s.current else ""
+        official = " [official]" if s.official_app else ""
+        print(
+            f"  {s.device_model} — {s.platform} {s.system_version}"
+            f"  |  {s.app_name} {s.app_version}{official}"
+            f"  |  {s.ip} ({s.country})"
+            f"  |  active {s.date_active:%Y-%m-%d %H:%M} UTC"
+            f"  |  hash: {s.hash}{current_marker}"
+        )
+    if hint:
+        print("  Tip: use /settings for an overview")
+
+
+def _print_web_sessions(resp: Any) -> None:
+    if not resp.sessions:
+        print("  No active web sessions.")
+        return
+    for s in resp.sessions:
+        print(
+            f"  {s.domain} — {s.browser} on {s.platform}"
+            f"  |  {s.ip} ({s.region})"
+            f"  |  bot: {s.bot_name}"
+            f"  |  active {s.date_active:%Y-%m-%d %H:%M} UTC"
+            f"  |  hash: {s.hash}"
+        )
+
+
+def _print_settings_overview(resp: Any) -> None:
+    tfa_status = "enabled" if resp.two_factor.enabled else "disabled"
+    recovery = ", recovery email: yes" if resp.two_factor.has_recovery_email else ", recovery email: no"
+    print("Settings overview:")
+    print()
+    print(f"  2FA: {tfa_status}{recovery}")
+    print(f"  Account TTL: {resp.account_ttl.days} days")
+    print()
+    print("  Privacy:")
+    for r in resp.privacy:
+        print(f"    {r.label:20s} {r.level}")
+    print()
+    current = next((s for s in resp.sessions if s.current), None)
+    current_label = f", current: {current.device_model}" if current else ""
+    print(f"  Sessions: {len(resp.sessions)} total{current_label}")
+    web_count = len(resp.web_sessions)
+    print(f"  Web sessions: {web_count}" if web_count else "  Web sessions: none")
+    print()
+    print("Use /settings <section> for details: 2fa, ttl, privacy, sessions, web")
+
+
+# --- Interactive chat (stays in REPL only — requires event loop) ---
 
 
 async def _cmd_chat(
@@ -247,247 +331,11 @@ async def _cmd_chat(
         client.raw.remove_event_handler(_on_message_edited)
 
 
-async def _cmd_add(client: TelemanClient, user_id: int | str) -> None:
-    user = await add_contact(client, user_id)
-    print(f"Added contact: {user.first_name} (ID: {user.id})")
-
-
-async def _cmd_me(client: TelemanClient) -> None:
-
-    raw_me = await client.raw.get_me()
-    me = User.from_telethon(raw_me)
-    name = me.first_name
-    if me.last_name:
-        name += f" {me.last_name}"
-    print(f"  Name:     {name}")
-    print(f"  ID:       {me.id}")
-    print(f"  Phone:    {me.phone or 'N/A'}")
-    print(f"  Username: @{me.username}" if me.username else "  Username: N/A")
-    print(f"  Premium:  {'Yes' if me.premium else 'No'}")
-
-
-async def _cmd_privacy(client: TelemanClient, *, hint: bool = False) -> None:
-    from teleman.privacy import get_privacy
-
-    rules = await get_privacy(client)
-    for r in rules:
-        print(f"  {r.label:20s} {r.level}")
-    if hint:
-        print("  Tip: use /settings for an overview")
-
-
-async def _cmd_privacy_set(client: TelemanClient, key: str, level: str) -> None:
-    from teleman.privacy import set_privacy
-
-    result = await set_privacy(client, key, level)
-    print(f"  {result.label}: {result.level}")
-
-
-async def _cmd_lockdown(client: TelemanClient) -> None:
-    from teleman.privacy import lockdown_privacy
-
-    results = await lockdown_privacy(client)
-    for r in results:
-        if r.error:
-            print(f"  {r.label:20s} SKIPPED ({r.error})")
-        else:
-            print(f"  {r.label:20s} {r.level}")
-
-
-async def _cmd_chats(client: TelemanClient) -> None:
-    dialogs = await client.raw.get_dialogs()
-    for d in dialogs:
-        entity = d.entity
-        username_str = f" @{entity.username}" if getattr(entity, "username", None) else ""
-        if hasattr(entity, "first_name"):
-            kind = "user"
-        elif hasattr(entity, "title"):
-            is_group = getattr(entity, "megagroup", False) or not getattr(entity, "broadcast", False)
-            kind = "group" if is_group else "channel"
-        else:
-            kind = "?"
-        unread = f" [{d.unread_count} unread]" if d.unread_count else ""
-        print(f"  {entity.id}{username_str} ({kind}){unread}")
-
-
-async def _cmd_contacts(client: TelemanClient) -> None:
-    from telethon.tl.functions.contacts import GetContactsRequest
-
-    result = await client.raw(GetContactsRequest(hash=0))
-    for u in result.users:
-        user = User.from_telethon(u)
-        name = user.first_name
-        if user.last_name:
-            name += f" {user.last_name}"
-        username_str = f" @{user.username}" if user.username else ""
-        print(f"  {user.id}: {name}{username_str}")
-
-
-async def _cmd_sessions(client: TelemanClient, *, hint: bool = False) -> None:
-    from teleman.sessions import get_sessions
-
-    sessions = await get_sessions(client)
-    for s in sessions:
-        current_marker = " (current)" if s.current else ""
-        official = " [official]" if s.official_app else ""
-        print(
-            f"  {s.device_model} — {s.platform} {s.system_version}"
-            f"  |  {s.app_name} {s.app_version}{official}"
-            f"  |  {s.ip} ({s.country})"
-            f"  |  active {s.date_active:%Y-%m-%d %H:%M} UTC"
-            f"  |  hash: {s.hash}{current_marker}"
-        )
-    if hint:
-        print("  Tip: use /settings for an overview")
-
-
-async def _cmd_web_sessions(client: TelemanClient) -> None:
-    from teleman.settings import get_web_sessions
-
-    sessions = await get_web_sessions(client)
-    if not sessions:
-        print("  No active web sessions.")
-        return
-    for s in sessions:
-        print(
-            f"  {s.domain} — {s.browser} on {s.platform}"
-            f"  |  {s.ip} ({s.region})"
-            f"  |  bot: {s.bot_name}"
-            f"  |  active {s.date_active:%Y-%m-%d %H:%M} UTC"
-            f"  |  hash: {s.hash}"
-        )
-
-
-async def _cmd_web_end(client: TelemanClient, session_hash: int) -> None:
-    from teleman.settings import end_web_session, get_web_sessions
-
-    sessions = await get_web_sessions(client)
-    target = next((s for s in sessions if s.hash == session_hash), None)
-    if target is None:
-        print(f"No web session found with hash {session_hash}.")
-        return
-    await end_web_session(client, session_hash)
-    print(f"Web session {session_hash} ({target.domain}) terminated.")
-
-
-async def _cmd_web_end_all(client: TelemanClient) -> None:
-    from teleman.settings import end_all_web_sessions
-
-    await end_all_web_sessions(client)
-    print("All web sessions terminated.")
-
-
-async def _cmd_settings(client: TelemanClient, section: str | None = None) -> None:
-    if section is None:
-        await _cmd_settings_overview(client)
-    elif section == "2fa":
-        await _cmd_settings_2fa(client)
-    elif section == "ttl":
-        await _cmd_settings_ttl(client)
-    elif section.startswith("ttl "):
-        # /settings ttl <days>
-        days_str = section[4:].strip()
-        try:
-            days = int(days_str)
-        except ValueError:
-            print("Usage: /settings ttl <days>")
-            return
-        await _cmd_settings_ttl_set(client, days)
-    elif section == "privacy":
-        await _cmd_privacy(client)
-    elif section == "sessions":
-        await _cmd_sessions(client)
-    elif section == "web":
-        await _cmd_web_sessions(client)
-    else:
-        print(f"Unknown settings section: {section}")
-        print("Sections: 2fa, ttl, privacy, sessions, web")
-
-
-async def _cmd_settings_overview(client: TelemanClient) -> None:
-    from teleman.privacy import get_privacy
-    from teleman.sessions import get_sessions
-    from teleman.settings import get_2fa_status, get_account_ttl, get_web_sessions
-
-    tfa = await get_2fa_status(client)
-    ttl = await get_account_ttl(client)
-    privacy_rules = await get_privacy(client)
-    sessions = await get_sessions(client)
-    web_sessions = await get_web_sessions(client)
-
-    print("Settings overview:")
-    print()
-    tfa_status = "enabled" if tfa.enabled else "disabled"
-    recovery = ", recovery email: yes" if tfa.has_recovery_email else ", recovery email: no"
-    print(f"  2FA: {tfa_status}{recovery}")
-    print(f"  Account TTL: {ttl.days} days")
-    print()
-    print("  Privacy:")
-    for r in privacy_rules:
-        print(f"    {r.label:20s} {r.level}")
-    print()
-    current = next((s for s in sessions if s.current), None)
-    current_label = f", current: {current.device_model}" if current else ""
-    print(f"  Sessions: {len(sessions)} total{current_label}")
-    web_count = len(web_sessions)
-    print(f"  Web sessions: {web_count}" if web_count else "  Web sessions: none")
-    print()
-    print("Use /settings <section> for details: 2fa, ttl, privacy, sessions, web")
-
-
-async def _cmd_settings_2fa(client: TelemanClient) -> None:
-    from teleman.settings import get_2fa_status
-
-    tfa = await get_2fa_status(client)
-    print(f"  2FA: {'enabled' if tfa.enabled else 'disabled'}")
-    print(f"  Recovery email: {'yes' if tfa.has_recovery_email else 'no'}")
-
-
-async def _cmd_settings_ttl(client: TelemanClient) -> None:
-    from teleman.settings import get_account_ttl
-
-    ttl = await get_account_ttl(client)
-    print(f"  Account TTL: {ttl.days} days")
-    print("  Use /settings ttl <days> to change")
-
-
-async def _cmd_settings_ttl_set(client: TelemanClient, days: int) -> None:
-    from teleman.settings import set_account_ttl
-
-    ttl = await set_account_ttl(client, days)
-    print(f"  Account TTL set to {ttl.days} days")
-
-
-async def _cmd_session_end(client: TelemanClient, session_hash: int) -> None:
-    from teleman.sessions import end_session, get_sessions
-
-    sessions = await get_sessions(client)
-    target = next((s for s in sessions if s.hash == session_hash), None)
-    if target is None:
-        print(f"No session found with hash {session_hash}.")
-        return
-    if target.current:
-        print("Cannot terminate the current session.")
-        return
-    await end_session(client, session_hash)
-    print(f"Session {session_hash} ({target.device_model}) terminated.")
-
-
-async def _cmd_nuke(client: TelemanClient, user_id: int | str) -> None:
-    peer = await get_peer(client, user_id)
-    display = peer_name(peer)
-    confirm = await _input(
-        f"Delete ALL messages with {display} (ID: {peer.id}) for BOTH sides and remove chat? Type YES to confirm: "
-    )
-    if confirm.strip() != "YES":
-        print("Aborted.")
-        return
-    count = await delete_all_messages(client, user_id)
-    await delete_dialog(client, user_id)
-    print(f"Deleted {count} messages and removed chat with {display}.")
+# --- Interactive report (stays in REPL — requires user prompts) ---
 
 
 async def _cmd_report(client: TelemanClient, user_id: int | str) -> None:
+    from teleman.contacts import get_user
     from teleman.report import REPORT_REASONS, report_peer
 
     user = await get_user(client, user_id)
@@ -515,25 +363,31 @@ async def _cmd_report(client: TelemanClient, user_id: int | str) -> None:
     print(f"Reported {result.user.first_name} for: {result.reason_label}")
 
 
-async def _cmd_export_list(client: TelemanClient) -> None:
-    dialogs = await list_dialogs(client)
-    for i, (meta, _entity) in enumerate(dialogs, 1):
-        print(f"  {i}. {meta.title} ({meta.type}, {meta.chat_id})")
+# --- Interactive nuke (stays in REPL — requires confirmation) ---
 
 
-async def _cmd_export(client: TelemanClient, query: str) -> None:
-    def on_progress(count: int) -> None:
-        print(f"\r  Exporting... {count} messages", end="", flush=True)
+async def _cmd_nuke(client: TelemanClient, user_id: int | str) -> None:
+    from teleman.messages import delete_all_messages, delete_dialog
 
-    title, count, incremental = await export_chat(client, query, on_progress)
-    print()
-    if incremental:
-        print(f'  Synced {count} new messages from "{title}"')
-    else:
-        print(f'  Exported {count} messages from "{title}"')
+    peer = await get_peer(client, user_id)
+    display = peer_name(peer)
+    confirm = await _input(
+        f"Delete ALL messages with {display} (ID: {peer.id}) for BOTH sides and remove chat? Type YES to confirm: "
+    )
+    if confirm.strip() != "YES":
+        print("Aborted.")
+        return
+    count = await delete_all_messages(client, user_id)
+    await delete_dialog(client, user_id)
+    print(f"Deleted {count} messages and removed chat with {display}.")
+
+
+# --- REPL ---
 
 
 async def run(client: TelemanClient) -> None:
+    from teleman import commands
+
     print("teleman — type /help for commands, /quit to exit")
     while True:
         try:
@@ -581,19 +435,21 @@ async def run(client: TelemanClient) -> None:
                 print("  /export <chat>            — export chat history (incremental)")
                 print("  /quit                     — exit")
             elif cmd == "/me":
-                await _cmd_me(client)
+                _print_me(await commands.cmd_me(client))
             elif cmd == "/settings":
                 section = " ".join(args) if args else None
-                await _cmd_settings(client, section)
+                await _repl_settings(client, section)
             elif cmd == "/privacy":
-                await _cmd_privacy(client, hint=True)
+                _print_privacy(await commands.cmd_privacy(client), hint=True)
             elif cmd == "/privacy_set":
                 if len(args) < 2:
                     print("Usage: /privacy_set <key> <everyone|contacts|nobody>")
                     continue
-                await _cmd_privacy_set(client, args[0], args[1])
+                resp = await commands.cmd_privacy_set(client, args[0], args[1])
+                for r in resp.rules:
+                    print(f"  {r.label}: {r.level}")
             elif cmd == "/lockdown":
-                await _cmd_lockdown(client)
+                _print_lockdown(await commands.cmd_lockdown(client))
             elif cmd == "/chat":
                 if not args:
                     print("Usage: /chat <peer> [limit]  or  /chat <t.me link>")
@@ -610,13 +466,14 @@ async def run(client: TelemanClient) -> None:
                 if not args:
                     print("Usage: /add <user>")
                     continue
-                await _cmd_add(client, _parse_user_id(args[0]))
+                resp = await commands.cmd_add(client, _parse_user_id(args[0]))
+                print(f"Added contact: {resp.user.first_name} (ID: {resp.user.id})")
             elif cmd == "/chats":
-                await _cmd_chats(client)
+                _print_chats(await commands.cmd_chats(client))
             elif cmd == "/contacts":
-                await _cmd_contacts(client)
+                _print_contacts(await commands.cmd_contacts(client))
             elif cmd == "/sessions":
-                await _cmd_sessions(client, hint=True)
+                _print_sessions(await commands.cmd_sessions(client), hint=True)
             elif cmd == "/web_end":
                 if not args:
                     print("Usage: /web_end <hash>")
@@ -626,9 +483,11 @@ async def run(client: TelemanClient) -> None:
                 except ValueError:
                     print("Web session hash must be a number.")
                     continue
-                await _cmd_web_end(client, web_hash)
+                resp = await commands.cmd_web_end(client, web_hash)
+                print(f"Web session {resp.hash} ({resp.domain}) terminated.")
             elif cmd == "/web_end_all":
-                await _cmd_web_end_all(client)
+                await commands.cmd_web_end_all(client)
+                print("All web sessions terminated.")
             elif cmd == "/session_end":
                 if not args:
                     print("Usage: /session_end <hash>")
@@ -638,7 +497,8 @@ async def run(client: TelemanClient) -> None:
                 except ValueError:
                     print("Session hash must be a number.")
                     continue
-                await _cmd_session_end(client, session_hash)
+                resp = await commands.cmd_session_end(client, session_hash)
+                print(f"Session {resp.hash} ({resp.device_model}) terminated.")
             elif cmd == "/nuke":
                 if not args:
                     print("Usage: /nuke <user>")
@@ -650,13 +510,60 @@ async def run(client: TelemanClient) -> None:
                     continue
                 await _cmd_report(client, _parse_user_id(args[0]))
             elif cmd == "/export_list":
-                await _cmd_export_list(client)
+                resp = await commands.cmd_export_list(client)
+                for i, c in enumerate(resp.chats, 1):
+                    print(f"  {i}. {c.title} ({c.type}, {c.chat_id})")
             elif cmd == "/export":
                 if not args:
                     print("Usage: /export <chat name or ID>")
                     continue
-                await _cmd_export(client, " ".join(args))
+                query = " ".join(args)
+
+                def on_progress(count: int) -> None:
+                    print(f"\r  Exporting... {count} messages", end="", flush=True)
+
+                from teleman.export.exporter import export_chat
+
+                title, count, incremental = await export_chat(client, query, on_progress)
+                print()
+                if incremental:
+                    print(f'  Synced {count} new messages from "{title}"')
+                else:
+                    print(f'  Exported {count} messages from "{title}"')
             else:
                 print(f"Unknown command: {cmd}. Type /help for usage.")
         except Exception as exc:
             print(f"Error: {exc}")
+
+
+async def _repl_settings(client: TelemanClient, section: str | None) -> None:
+    from teleman import commands
+
+    if section is None:
+        _print_settings_overview(await commands.cmd_settings(client))
+    elif section == "2fa":
+        tfa = await commands.cmd_settings_2fa(client)
+        print(f"  2FA: {'enabled' if tfa.enabled else 'disabled'}")
+        print(f"  Recovery email: {'yes' if tfa.has_recovery_email else 'no'}")
+    elif section == "ttl":
+        ttl = await commands.cmd_settings_ttl(client)
+        print(f"  Account TTL: {ttl.days} days")
+        print("  Use /settings ttl <days> to change")
+    elif section.startswith("ttl "):
+        days_str = section[4:].strip()
+        try:
+            days = int(days_str)
+        except ValueError:
+            print("Usage: /settings ttl <days>")
+            return
+        ttl = await commands.cmd_settings_ttl_set(client, days)
+        print(f"  Account TTL set to {ttl.days} days")
+    elif section == "privacy":
+        _print_privacy(await commands.cmd_privacy(client))
+    elif section == "sessions":
+        _print_sessions(await commands.cmd_sessions(client))
+    elif section == "web":
+        _print_web_sessions(await commands.cmd_web_sessions(client))
+    else:
+        print(f"Unknown settings section: {section}")
+        print("Sections: 2fa, ttl, privacy, sessions, web")

@@ -1,48 +1,55 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
-from teleman.cli import run
 from teleman.client import TelemanClient
 from teleman.config import Settings, list_accounts, load_account
 from teleman.proxy import get_proxy_for_account, load_proxies
 
 
-def _parse_account_arg() -> str | None:
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--account" and i + 1 < len(args):
-            return args[i + 1]
-    return None
+def _parse_user_id(raw: str) -> int | str:
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+def _json_out(obj: Any) -> None:
+    if isinstance(obj, BaseModel):
+        print(obj.model_dump_json(indent=2))
+    elif isinstance(obj, dict):
+        print(json.dumps(obj, indent=2, default=str))
+    else:
+        print(json.dumps(obj, default=str))
 
 
 def _pick_account(accounts_dir: str) -> str:
     accounts = list_accounts(accounts_dir)
     if not accounts:
-        print(f"No accounts found in {accounts_dir}/")
+        print(f"No accounts found in {accounts_dir}/", file=sys.stderr)
         sys.exit(1)
     if len(accounts) == 1:
         return accounts[0]
-    print("Available accounts:")
+    print("Available accounts:", file=sys.stderr)
     for idx, name in enumerate(accounts, 1):
-        print(f"  {idx}. {name}")
+        print(f"  {idx}. {name}", file=sys.stderr)
     choice = input("Select account number: ").strip()
     try:
         return accounts[int(choice) - 1]
     except (ValueError, IndexError):
-        print("Invalid selection.")
+        print("Invalid selection.", file=sys.stderr)
         sys.exit(1)
 
 
-async def main() -> None:
-    load_dotenv()
-    settings = Settings()  # type: ignore[call-arg]
-
-    account_name = _parse_account_arg()
+async def _connect(settings: Settings, account_name: str | None) -> TelemanClient:
     if account_name is None:
         account_name = _pick_account(settings.accounts_dir)
 
@@ -50,20 +57,174 @@ async def main() -> None:
     session_path = str(Path(settings.accounts_dir) / account_name)
 
     proxies = load_proxies(settings.accounts_dir)
+    proxy_kwargs = None
     if proxies:
         proxy_config = get_proxy_for_account(proxies, account_name)
-    else:
-        proxy_config = None
-    proxy_kwargs = proxy_config.to_telethon_kwargs() if proxy_config else None
-    if proxy_config is not None:
-        print(f"Using {proxy_config.type} proxy {proxy_config.addr}:{proxy_config.port}")
-    elif proxies:
-        print("Direct connection (no proxy)")
+        if proxy_config:
+            proxy_kwargs = proxy_config.to_telethon_kwargs()
+            print(
+                f"Using {proxy_config.type} proxy {proxy_config.addr}:{proxy_config.port}",
+                file=sys.stderr,
+            )
+        else:
+            print("Direct connection (no proxy)", file=sys.stderr)
 
     client = TelemanClient(account, session_path, proxy_kwargs=proxy_kwargs)
     await client.connect()
+    return client
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="teleman", description="Telegram CLI client")
+    parser.add_argument("--account", help="Account name to use")
+
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("repl", help="Interactive REPL (default)")
+    sub.add_parser("me", help="Show current account info")
+    sub.add_parser("chats", help="List all chats")
+    sub.add_parser("contacts", help="List contacts")
+
+    p = sub.add_parser("messages", help="Get messages from a chat")
+    p.add_argument("peer", help="Peer ID or @username")
+    p.add_argument("--limit", type=int, default=20, help="Number of messages (default: 20)")
+
+    p = sub.add_parser("send", help="Send a message")
+    p.add_argument("peer", help="Peer ID or @username")
+    p.add_argument("text", help="Message text")
+
+    p = sub.add_parser("add", help="Add a contact")
+    p.add_argument("user", help="User ID or @username")
+
+    sub.add_parser("privacy", help="Show privacy settings")
+
+    p = sub.add_parser("privacy-set", help="Set a privacy key")
+    p.add_argument("key", help="Privacy key (e.g. phone_number, last_seen)")
+    p.add_argument("level", choices=["everyone", "contacts", "nobody"], help="Privacy level")
+
+    sub.add_parser("lockdown", help="Set all privacy to 'nobody'")
+    sub.add_parser("sessions", help="List active sessions")
+
+    p = sub.add_parser("session-end", help="Terminate a session by hash")
+    p.add_argument("hash", type=int, help="Session hash")
+
+    p = sub.add_parser("settings", help="Security & privacy overview")
+    p.add_argument("section", nargs="?", help="Section: 2fa, ttl, privacy, sessions, web")
+    p.add_argument("value", nargs="?", help="Value to set (e.g. days for ttl)")
+
+    sub.add_parser("web-sessions", help="List web authorizations")
+
+    p = sub.add_parser("web-end", help="Terminate a web session by hash")
+    p.add_argument("hash", type=int, help="Web session hash")
+
+    sub.add_parser("web-end-all", help="Terminate all web sessions")
+
+    sub.add_parser("export-list", help="List chats available for export")
+
+    p = sub.add_parser("export", help="Export chat history (incremental)")
+    p.add_argument("chat", nargs="+", help="Chat name or ID")
+
+    return parser
+
+
+async def _run_command(client: TelemanClient, args: argparse.Namespace) -> None:
+    from teleman import commands
+
+    cmd = args.command
+
+    if cmd == "me":
+        _json_out(await commands.cmd_me(client))
+    elif cmd == "chats":
+        _json_out(await commands.cmd_chats(client))
+    elif cmd == "contacts":
+        _json_out(await commands.cmd_contacts(client))
+    elif cmd == "messages":
+        _json_out(await commands.cmd_messages(client, _parse_user_id(args.peer), limit=args.limit))
+    elif cmd == "send":
+        _json_out(await commands.cmd_send(client, _parse_user_id(args.peer), args.text))
+    elif cmd == "add":
+        _json_out(await commands.cmd_add(client, _parse_user_id(args.user)))
+    elif cmd == "privacy":
+        _json_out(await commands.cmd_privacy(client))
+    elif cmd == "privacy-set":
+        _json_out(await commands.cmd_privacy_set(client, args.key, args.level))
+    elif cmd == "lockdown":
+        _json_out(await commands.cmd_lockdown(client))
+    elif cmd == "sessions":
+        _json_out(await commands.cmd_sessions(client))
+    elif cmd == "session-end":
+        _json_out(await commands.cmd_session_end(client, args.hash))
+    elif cmd == "settings":
+        await _run_settings(client, args)
+    elif cmd == "web-sessions":
+        _json_out(await commands.cmd_web_sessions(client))
+    elif cmd == "web-end":
+        _json_out(await commands.cmd_web_end(client, args.hash))
+    elif cmd == "web-end-all":
+        _json_out(await commands.cmd_web_end_all(client))
+    elif cmd == "export-list":
+        _json_out(await commands.cmd_export_list(client))
+    elif cmd == "export":
+        query = " ".join(args.chat)
+        _json_out(await commands.cmd_export(client, query))
+
+
+async def _run_settings(client: TelemanClient, args: argparse.Namespace) -> None:
+    from teleman import commands
+
+    section = args.section
+    if section is None:
+        _json_out(await commands.cmd_settings(client))
+    elif section == "2fa":
+        _json_out(await commands.cmd_settings_2fa(client))
+    elif section == "ttl":
+        if args.value is not None:
+            try:
+                days = int(args.value)
+            except ValueError:
+                print('{"error": "ttl value must be an integer"}', file=sys.stderr)
+                sys.exit(1)
+            _json_out(await commands.cmd_settings_ttl_set(client, days))
+        else:
+            _json_out(await commands.cmd_settings_ttl(client))
+    elif section == "privacy":
+        _json_out(await commands.cmd_privacy(client))
+    elif section == "sessions":
+        _json_out(await commands.cmd_sessions(client))
+    elif section == "web":
+        _json_out(await commands.cmd_web_sessions(client))
+    else:
+        print(f'{{"error": "Unknown settings section: {section}"}}', file=sys.stderr)
+        sys.exit(1)
+
+
+async def main() -> None:
+    load_dotenv()
+    settings = Settings()  # type: ignore[call-arg]
+
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    # Default to REPL when no subcommand given
+    if args.command is None or args.command == "repl":
+        from teleman.cli import run
+
+        client = await _connect(settings, args.account)
+        try:
+            await run(client)
+        finally:
+            await client.disconnect()
+        return
+
+    client = await _connect(settings, args.account)
     try:
-        await run(client)
+        await _run_command(client, args)
+    except ValueError as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)
     finally:
         await client.disconnect()
 
