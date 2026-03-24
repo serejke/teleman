@@ -1,0 +1,43 @@
+[project]
+name = "teleman"
+version = "0.1.0"
+description = "Simple CLI client for Telegram using Telethon"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "telethon",
+    "python-dotenv",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.12.0",
+    "python-socks[asyncio]",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.11",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "SIM",   # flake8-simplify
+    "RUF",   # ruff-specific rules
+    "ANN",   # flake8-annotations — enforce type annotations
+]
+ignore = [
+    "ANN401",  # dynamically typed expressions (Any) — needed for Telethon boundary
+    "SIM108",  # ternary operator — readability preference
+]
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
