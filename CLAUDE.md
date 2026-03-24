@@ -47,6 +47,14 @@ uv run ruff format --check teleman/ tests/
     - `resolver.py` — entity resolution
     - `storage.py` — JSON file storage
 
+## Skills
+
+- Skills live in `.claude/skills/`. When adding or changing CLI commands, subcommands, or output shapes, update the corresponding skill's `SKILL.md` to stay in sync.
+
+## Privacy
+
+- Never include real chat names, usernames, user IDs, or chat IDs in files that get committed (code, skills, docs, tests). Use placeholders like `<chat>`, `12345`, `@example` in examples.
+
 ## Git Conventions
 
 - Do not add Claude Code footer to commit messages
