@@ -121,7 +121,7 @@ async def _backfill_older(
     topic_root_ids: set[int] | None,
     on_progress: Callable[[int, int], None] | None,
     new_count: int,
-) -> tuple[int, int | None, int | None]:
+) -> tuple[int, int | None, int | None, datetime | None]:
     """Fetch messages older than offset_id, newest→oldest, stop at `since` date.
 
     Streams batches to `messages.backfill.jsonl` as they arrive (iteration
@@ -129,7 +129,7 @@ async def _backfill_older(
     prepends to messages.jsonl via atomic rename. If an earlier run was
     interrupted and left a tmp file, this run resumes from the oldest
     message already buffered there.
-    Returns (finalized_count, new_oldest_id, seen_newest_id).
+    Returns (finalized_count, new_oldest_id, seen_newest_id, seen_newest_date).
     """
     tail = read_backfill_tail(chat_dir)
     head = read_backfill_head(chat_dir) if tail is not None else None
@@ -140,6 +140,7 @@ async def _backfill_older(
     this_run_appended = 0
     this_run_oldest_id: int | None = None
     seen_newest_id: int | None = head[0] if head is not None else None
+    seen_newest_date: datetime | None = head[1] if head is not None else None
 
     async for msg in client.raw.iter_messages(entity, offset_id=resume_offset_id):
         if since is not None and msg.date < since:
@@ -148,6 +149,7 @@ async def _backfill_older(
             continue
         if seen_newest_id is None:
             seen_newest_id = msg.id
+            seen_newest_date = msg.date
         exported = ExportedMessage.from_telethon(msg, topic_root_ids=topic_root_ids)
         batch.append(exported)
         this_run_oldest_id = msg.id
@@ -165,28 +167,32 @@ async def _backfill_older(
             on_progress(new_count, this_run_appended)
 
     if tail is None and this_run_appended == 0:
-        return 0, None, None
+        return 0, None, None, None
 
     finalized = finalize_backfill(chat_dir)
     new_oldest_id = this_run_oldest_id if this_run_oldest_id is not None else (tail[0] if tail else None)
-    return finalized, new_oldest_id, seen_newest_id
+    return finalized, new_oldest_id, seen_newest_id, seen_newest_date
 
 
 async def sync_chat(
     client: TelemanClient,
     query: str,
     *,
-    backfill: bool = False,
     since: datetime | None = None,
     until: datetime | None = None,
-    track: bool = True,
+    all_history: bool = False,
+    forward_only: bool = False,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> SyncResult:
-    """Sync a chat: forward catch-up + optional backward backfill.
+    """Sync a chat: always forward catch-up + backward fill (unless forward_only).
 
-    - Forward catch-up runs whenever state exists; writes a checkpoint if delta > 0.
-    - Backfill runs only when `backfill=True`; never writes a checkpoint.
-    - First sync (no state) with backfill=False returns bootstrap_required=True (no-op).
+    - First-ever sync with neither `since` nor `all_history` returns
+      `bootstrap_required=True` as a safety guard against accidentally
+      fetching an entire chat's history.
+    - `forward_only=True` skips the backward pass (used by `sync --all`
+      batch mode on existing-state chats).
+    - A checkpoint is written whenever `newest_id` advances, which covers
+      both forward deltas and first-time bootstraps.
     """
     meta, entity = await resolve_chat(client, query)
 
@@ -196,7 +202,7 @@ async def sync_chat(
     state = read_state(chat_dir)
     resumed = state is not None
 
-    if state is None and not backfill:
+    if state is None and since is None and not all_history:
         return SyncResult(
             title=meta.title,
             new_count=0,
@@ -229,12 +235,15 @@ async def sync_chat(
     backfill_count = 0
     new_oldest_id: int | None = None
     seen_newest_from_backfill: int | None = None
-    if backfill:
+    seen_newest_date_from_backfill: datetime | None = None
+    run_backfill = not forward_only
+    if run_backfill:
         backfill_offset = state.oldest_id if state is not None else 0
         (
             backfill_count,
             new_oldest_id,
             seen_newest_from_backfill,
+            seen_newest_date_from_backfill,
         ) = await _backfill_older(
             client,
             entity,
@@ -264,17 +273,20 @@ async def sync_chat(
         new_oldest_id if new_oldest_id is not None else (state.oldest_id if state else seen_newest_from_backfill)
     )
 
-    effective_tracked = state.tracked if state is not None else track
+    effective_tracked = state.tracked if state is not None else True
 
+    # Checkpoint rule: whenever newest_id advances.
     checkpoint: Checkpoint | None = None
-    if new_count > 0 and new_newest_id is not None and new_newest_date is not None:
-        prev_newest = state.newest_id if state else 0
+    prev_newest = state.newest_id if state else 0
+    cp_newest_date = new_newest_date if new_newest_date is not None else seen_newest_date_from_backfill
+    if newest_id is not None and newest_id > prev_newest and cp_newest_date is not None:
+        delta = newest_id - prev_newest if state else (new_count + backfill_count)
         checkpoint = Checkpoint(
-            id=new_newest_date,
+            id=cp_newest_date,
             created_at=now,
-            newest_id=new_newest_id,
+            newest_id=newest_id,
             prev_newest_id=prev_newest,
-            delta_count=new_count,
+            delta_count=delta,
         )
         append_checkpoint(chat_dir, checkpoint)
 

@@ -39,22 +39,22 @@ allowed-tools: Bash, Read
 
 ### Write commands (have side effects)
 
-| Command                                                | Description                                     | Example                                                                           |
-| ------------------------------------------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------- |
-| `send <peer> <text>`                                   | Send a message                                  | `uv run python -m teleman send @user "hello"`                                     |
-| `add <user>`                                           | Add a contact                                   | `uv run python -m teleman add @username`                                          |
-| `privacy-set <key> <level>`                            | Set privacy (`everyone`/`contacts`/`nobody`)    | `uv run python -m teleman privacy-set phone_number nobody`                        |
-| `lockdown`                                             | Set ALL privacy to `nobody`                     | `uv run python -m teleman lockdown`                                               |
-| `settings ttl <days>`                                  | Set account self-destruct TTL                   | `uv run python -m teleman settings ttl 365`                                       |
-| `session-end <hash>`                                   | Terminate a session                             | `uv run python -m teleman session-end 123456789`                                  |
-| `web-end <hash>`                                       | Terminate a web session                         | `uv run python -m teleman web-end 123456789`                                      |
-| `web-end-all`                                          | Terminate all web sessions                      | `uv run python -m teleman web-end-all`                                            |
-| `sync <chat>`                                          | Forward catch-up only (requires existing state) | `uv run python -m teleman sync @example`                                          |
-| `sync <chat> --backfill [--since DATE] [--until DATE]` | Forward catch-up + fetch older messages         | `uv run python -m teleman sync @example --backfill --since 2025-08-01`            |
-| `sync <chat> --no-track`                               | Initial sync without auto-tracking              | `uv run python -m teleman sync @example --backfill --since 2025-08-01 --no-track` |
-| `sync --all`                                           | Sync every tracked chat, continue on error      | `uv run python -m teleman sync --all`                                             |
-| `track <chat>`                                         | Mark a chat as tracked                          | `uv run python -m teleman track @example`                                         |
-| `untrack <chat>`                                       | Unmark a chat from batch sync                   | `uv run python -m teleman untrack @example`                                       |
+| Command                                     | Description                                                                             | Example                                                     |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `send <peer> <text>`                        | Send a message                                                                          | `uv run python -m teleman send @user "hello"`               |
+| `add <user>`                                | Add a contact                                                                           | `uv run python -m teleman add @username`                    |
+| `privacy-set <key> <level>`                 | Set privacy (`everyone`/`contacts`/`nobody`)                                            | `uv run python -m teleman privacy-set phone_number nobody`  |
+| `lockdown`                                  | Set ALL privacy to `nobody`                                                             | `uv run python -m teleman lockdown`                         |
+| `settings ttl <days>`                       | Set account self-destruct TTL                                                           | `uv run python -m teleman settings ttl 365`                 |
+| `session-end <hash>`                        | Terminate a session                                                                     | `uv run python -m teleman session-end 123456789`            |
+| `web-end <hash>`                            | Terminate a web session                                                                 | `uv run python -m teleman web-end 123456789`                |
+| `web-end-all`                               | Terminate all web sessions                                                              | `uv run python -m teleman web-end-all`                      |
+| `sync <chat>`                               | Forward catch-up + backward fill. First-ever sync requires `--since` or `--all-history` | `uv run python -m teleman sync @example --since 2025-08-01` |
+| `sync <chat> [--since DATE] [--until DATE]` | Bound the backward fill by date                                                         | `uv run python -m teleman sync @example --since 2025-08-01` |
+| `sync <chat> --all-history`                 | Bootstrap with full history (safety override)                                           | `uv run python -m teleman sync @example --all-history`      |
+| `sync --all`                                | Sync every tracked chat (forward catch-up only), continue on error                      | `uv run python -m teleman sync --all`                       |
+| `track <chat>`                              | Mark a chat as tracked                                                                  | `uv run python -m teleman track @example`                   |
+| `untrack <chat>`                            | Unmark a chat from batch sync                                                           | `uv run python -m teleman untrack @example`                 |
 
 ### Privacy keys for `privacy-set`
 
@@ -90,11 +90,11 @@ checkpoints     → {chat_id, title, checkpoints: [{id, created_at, newest_id, p
 
 ## Sync primer
 
-- `sync <chat>` = forward catch-up only. Errors with `bootstrap_required: true` if no prior export.
-- `sync <chat> --backfill [--since DATE] [--until DATE]` = fetch older messages; also required for first-time bootstrap.
-- `sync --all` = batch over every tracked chat.
-- A checkpoint is written only when a forward sync had ≥1 new message. Backfills never write checkpoints.
-- Chats are `tracked: true` by default after first sync (use `--no-track` to opt out).
+- `sync <chat>` does forward catch-up + backward fill in one shot.
+- First-ever sync of a chat requires `--since YYYY-MM-DD` (or `--all-history` to intentionally fetch everything) — safety guard against accidental full-history fetches.
+- `sync --all` iterates every tracked chat **forward-only** (no backward fill in batch mode) and continues on error.
+- A checkpoint is written whenever `newest_id` advances — forward deltas and first-time bootstraps both create checkpoints. Backward fills that only extend older history do not.
+- Chats are `tracked: true` by default after first sync; use `untrack <chat>` to opt out.
 
 ## How to handle `$ARGUMENTS`
 

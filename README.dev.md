@@ -131,12 +131,12 @@ Export always walks Telegram newest → oldest (backwards). The on-disk
 
 - **Forward catch-up** on resume (messages with id > `state.newest_id`) is
   streamed to the end of the file.
-- **Backfill** of older messages (bounded by `--since`) streams batches to
-  `messages.backfill.jsonl` in iteration order (newest-first) as they arrive.
-  On completion, the tmp file is stream-reversed in bounded memory (~64 KB
-  blocks) and prepended to the top of `messages.jsonl` via an atomic
-  temp-file rename. If the process is interrupted mid-backfill, the tmp
-  file is preserved; re-running the same `sync --backfill --since DATE`
+- **Backward fill** of older messages (bounded by `--since`) streams batches
+  to `messages.backfill.jsonl` in iteration order (newest-first) as they
+  arrive. On completion, the tmp file is stream-reversed in bounded memory
+  (~64 KB blocks) and prepended to the top of `messages.jsonl` via an
+  atomic temp-file rename. If the process is interrupted mid-fill, the tmp
+  file is preserved; re-running the same `sync <chat> --since DATE`
   resumes from the oldest message already buffered there.
 
 Date filters:

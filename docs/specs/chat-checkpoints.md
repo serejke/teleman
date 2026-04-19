@@ -53,8 +53,7 @@ A checkpoint is an entry in a per-chat `checkpoints.jsonl`. It records the resul
 **Invariants:**
 
 - Checkpoint `id` is derived from the delta's newest message date — NOT wall-clock. This makes checkpoint ordering content-anchored, which is more meaningful than run-time ordering.
-- Checkpoints are only created when a forward sync fetched ≥ 1 new message. Empty syncs do not create checkpoints.
-- **Backfill never creates a checkpoint.** Going further back in history (`--since` with `--backfill`) is orthogonal to the forward checkpoint timeline.
+- **A checkpoint is written whenever `newest_id` advances.** This covers both forward-sync deltas and first-time bootstraps (where `newest_id` goes from 0 to the newest message fetched). Syncs that don't advance `newest_id` — empty forward catch-ups, or backward fills that only extend older history — do not create checkpoints.
 - Append-only. Never rewrite. Never delete.
 
 ### Backfill streaming & resume
@@ -65,8 +64,8 @@ A checkpoint is an entry in a per-chat `checkpoints.jsonl`. It records the resul
 - On completion the tmp file is stream-reversed in ~64 KB blocks and
   prepended to `messages.jsonl` via an atomic rename, then deleted.
 - If the process is interrupted, the tmp file is preserved. A subsequent
-  `sync --backfill --since DATE` reads the oldest message from the tmp's
-  tail and resumes iteration from that `offset_id` — no duplicate fetches.
+  `sync <chat> --since DATE` reads the oldest message from the tmp's tail
+  and resumes iteration from that `offset_id` — no duplicate fetches.
 
 ### State file
 
@@ -90,21 +89,22 @@ A checkpoint is an entry in a per-chat `checkpoints.jsonl`. It records the resul
 
 ### New
 
-| Command                                     | Description                                                                 |
-| ------------------------------------------- | --------------------------------------------------------------------------- |
-| `sync <chat>`                               | Forward catch-up for one chat. Writes checkpoint if delta > 0.              |
-| `sync --all`                                | Iterate all tracked chats, continue on error, per-chat summaries in output. |
-| `sync <chat> --backfill --since YYYY-MM-DD` | Forward catch-up + backward fill; only forward delta creates a checkpoint.  |
-| `sync <chat> --no-track`                    | Initial sync without flipping `tracked: true`.                              |
-| `track <chat>`                              | Set `tracked: true`.                                                        |
-| `untrack <chat>`                            | Set `tracked: false`.                                                       |
-| `tracked`                                   | List chats with `tracked: true`.                                            |
-| `checkpoints <chat>`                        | Print the checkpoint history (one line per checkpoint).                     |
+| Command                          | Description                                                                                                                             |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `sync <chat>`                    | Forward catch-up + backward fill. Writes a checkpoint when `newest_id` advances. Requires `--since` (or `--all-history`) on first sync. |
+| `sync <chat> --since YYYY-MM-DD` | Same, but the backward fill stops at DATE.                                                                                              |
+| `sync <chat> --all-history`      | Bootstrap by fetching full history. Safety override when `--since` is not given.                                                        |
+| `sync --all`                     | Iterate all tracked chats forward-only (no backward fill in batch mode). Continues on error.                                            |
+| `track <chat>`                   | Set `tracked: true`.                                                                                                                    |
+| `untrack <chat>`                 | Set `tracked: false`.                                                                                                                   |
+| `tracked`                        | List chats with `tracked: true`.                                                                                                        |
+| `checkpoints <chat>`             | Print the checkpoint history (one line per checkpoint).                                                                                 |
 
-### Removed flags
+### Removed / collapsed flags
 
-- `--until` on export — not carried over (limited use case, re-add if needed).
 - `export` verb — removed.
+- `--backfill` — removed. Per-chat sync always does both directions; `sync --all` is forward-only by design.
+- `--no-track` — removed. Tracking defaults to `true` on first sync; use `untrack <chat>` to opt out afterwards.
 
 ### Multi-account
 

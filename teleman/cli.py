@@ -456,8 +456,8 @@ async def run(client: TelemanClient) -> None:
                 print("  /report <user>            — report a user for abuse")
                 print()
                 print("  /export_list              — list chats available for sync")
-                print("  /sync <chat> [--backfill [--since DATE] [--until DATE]] [--no-track]")
-                print("                            — sync chat history (forward + optional backfill)")
+                print("  /sync <chat> [--since DATE] [--until DATE] [--all-history]")
+                print("                            — sync chat history (forward + backward fill)")
                 print("  /sync --all               — sync every tracked chat")
                 print("  /track <chat>             — mark a chat as tracked")
                 print("  /untrack <chat>           — unmark a chat from batch sync")
@@ -616,16 +616,12 @@ async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
             print(f"  ERROR {err.chat_id}: {err.error}")
         return
 
-    backfill = "--backfill" in args
-    no_track = "--no-track" in args
-    filtered = [a for a in args if a not in ("--backfill", "--no-track")]
+    all_history = "--all-history" in args
+    filtered = [a for a in args if a != "--all-history"]
     after, before, chat_parts = _parse_date_flags(filtered, ("--since", "--until"))
     if not chat_parts:
-        print("Usage: /sync <chat> [--backfill [--since YYYY-MM-DD] [--until YYYY-MM-DD]]")
+        print("Usage: /sync <chat> [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all-history]")
         print("       /sync --all")
-        return
-    if (after or before) and not backfill:
-        print("--since/--until require --backfill")
         return
     query = " ".join(chat_parts)
     since = after.replace(tzinfo=UTC) if after else None
@@ -643,15 +639,17 @@ async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
     result = await sync_chat(
         client,
         query,
-        backfill=backfill,
         since=since,
         until=until,
-        track=not no_track,
+        all_history=all_history,
         on_progress=on_progress,
     )
     print()
     if result.bootstrap_required:
-        print(f'  "{result.title}" has no export yet. Use /sync <chat> --backfill --since <date> to bootstrap.')
+        print(
+            f'  "{result.title}" has no export yet. Use /sync <chat> --since <date> '
+            f"(or --all-history to fetch everything)."
+        )
         return
     cp_str = f", checkpoint {result.checkpoint.id:%Y-%m-%d %H:%M}" if result.checkpoint is not None else ""
     print(

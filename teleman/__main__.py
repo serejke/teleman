@@ -126,13 +126,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("export-list", help="List chats available for export")
 
-    p = sub.add_parser("sync", help="Sync chat(s): forward catch-up + optional backfill")
+    p = sub.add_parser(
+        "sync",
+        help="Sync chat(s): forward catch-up + backward fill of missing history",
+    )
     p.add_argument("chat", nargs="*", help="Chat name or ID (omit with --all)")
-    p.add_argument("--all", action="store_true", help="Sync every tracked chat")
-    p.add_argument("--backfill", action="store_true", help="Also fetch older messages")
-    p.add_argument("--since", help="Backfill back to this date (YYYY-MM-DD)")
+    p.add_argument("--all", action="store_true", help="Sync every tracked chat (forward catch-up only)")
+    p.add_argument("--since", help="Stop the backward fill at this date (YYYY-MM-DD)")
     p.add_argument("--until", help="Filter out messages newer than this date (YYYY-MM-DD)")
-    p.add_argument("--no-track", action="store_true", help="Initial sync without tracking")
+    p.add_argument(
+        "--all-history",
+        action="store_true",
+        help="Bootstrap a chat without --since by fetching full history (safety override)",
+    )
 
     p = sub.add_parser("track", help="Mark a chat as tracked for batch sync")
     p.add_argument("chat", nargs="+", help="Chat name or ID")
@@ -197,20 +203,17 @@ async def _run_command(client: TelemanClient, args: argparse.Namespace) -> None:
             _json_out(await commands.cmd_sync_all(client))
         else:
             if not args.chat:
-                raise ValueError("Usage: sync <chat> [--backfill --since DATE] or sync --all")
+                raise ValueError("Usage: sync <chat> [--since DATE] [--until DATE] or sync --all")
             query = " ".join(args.chat)
             since = _parse_date(args.since) if args.since else None
             until = _parse_date(args.until) if args.until else None
-            if (since or until) and not args.backfill:
-                raise ValueError("--since/--until require --backfill")
             _json_out(
                 await commands.cmd_sync(
                     client,
                     query,
-                    backfill=args.backfill,
                     since=since,
                     until=until,
-                    track=not args.no_track,
+                    all_history=args.all_history,
                 )
             )
     elif cmd == "track":

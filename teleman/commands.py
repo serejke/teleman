@@ -220,18 +220,16 @@ async def cmd_sync(
     client: TelemanClient,
     query: str,
     *,
-    backfill: bool = False,
     since: datetime | None = None,
     until: datetime | None = None,
-    track: bool = True,
+    all_history: bool = False,
 ) -> SyncResponse:
     result = await _sync_chat(
         client,
         query,
-        backfill=backfill,
         since=since,
         until=until,
-        track=track,
+        all_history=all_history,
     )
     return SyncResponse(
         title=result.title,
@@ -256,7 +254,7 @@ async def cmd_sync_all(client: TelemanClient) -> BatchSyncResponse:
         meta = read_meta(chat_dir)
         title = meta.title if meta else chat_dir.name
         try:
-            result = await _sync_chat(client, str(chat_id), backfill=False)
+            result = await _sync_chat(client, str(chat_id), forward_only=True)
             results.append(
                 BatchSyncItem(
                     chat_id=chat_id,
@@ -279,7 +277,7 @@ async def _set_tracked(client: TelemanClient, query: str, tracked: bool) -> Trac
     chat_dir = get_chat_dir(get_data_dir(), meta.chat_id)
     state = read_state(chat_dir)
     if state is None:
-        raise ValueError(f'No export state for "{meta.title}". Run `sync --backfill --since <date>` to bootstrap.')
+        raise ValueError(f'No export state for "{meta.title}". Run `sync <chat> --since <date>` to bootstrap.')
     state.tracked = tracked
     write_state(chat_dir, state)
     return TrackResponse(chat_id=meta.chat_id, title=meta.title, tracked=tracked)
