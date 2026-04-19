@@ -51,6 +51,11 @@ uv run ruff format --check teleman/ tests/
 
 - Skills live in `.claude/skills/`. When adding or changing CLI commands, subcommands, or output shapes, update the corresponding skill's `SKILL.md` to stay in sync.
 
+## Specs and docs
+
+- Specs are ephemeral scaffolding for design conversations. Draft them at `docs/specs/<feature>.md` while the design is in flight.
+- Once a feature ships, delete its spec. The living docs (`README.dev.md`, `docs/vision.md`, the relevant `SKILL.md`, this file) become the source of truth. Design rationale lives in commit messages; specs alongside ship code rot into second-truth drift.
+
 ## Privacy
 
 - Never include real chat names, usernames, user IDs, or chat IDs in files that get committed (code, skills, docs, tests). Use placeholders like `<chat>`, `12345`, `@example` in examples.
