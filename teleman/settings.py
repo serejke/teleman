@@ -88,8 +88,10 @@ async def get_web_sessions(client: TelemanClient) -> list[WebSession]:
 
 
 async def end_web_session(client: TelemanClient, session_hash: int) -> bool:
-    return await client.raw(ResetWebAuthorizationRequest(hash=session_hash))
+    result = await client.raw(ResetWebAuthorizationRequest(hash=session_hash))
+    return bool(result)
 
 
 async def end_all_web_sessions(client: TelemanClient) -> bool:
-    return await client.raw(ResetWebAuthorizationsRequest())
+    result = await client.raw(ResetWebAuthorizationsRequest())
+    return bool(result)

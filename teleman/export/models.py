@@ -52,7 +52,8 @@ def _extract_sender_name(sender: Any) -> str | None:
         parts = [sender.first_name or "", getattr(sender, "last_name", None) or ""]
         return " ".join(p for p in parts if p) or None
     if hasattr(sender, "title"):
-        return sender.title
+        title = sender.title
+        return str(title) if title else None
     return None
 
 

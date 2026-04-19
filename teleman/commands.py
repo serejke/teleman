@@ -27,7 +27,7 @@ from teleman.messages import (
 )
 from teleman.models import User
 from teleman.privacy import get_privacy, lockdown_privacy, set_privacy
-from teleman.report import report_peer
+from teleman.report import ReportResult, report_peer
 from teleman.responses import (
     AddContactResponse,
     BatchSyncError,
@@ -58,6 +58,8 @@ from teleman.responses import (
 )
 from teleman.sessions import end_session, get_sessions
 from teleman.settings import (
+    AccountTTL,
+    TwoFactorStatus,
     end_all_web_sessions,
     end_web_session,
     get_2fa_status,
@@ -191,15 +193,15 @@ async def cmd_web_end_all(client: TelemanClient) -> WebEndAllResponse:
     return WebEndAllResponse()
 
 
-async def cmd_settings_2fa(client: TelemanClient) -> None:
+async def cmd_settings_2fa(client: TelemanClient) -> TwoFactorStatus:
     return await get_2fa_status(client)
 
 
-async def cmd_settings_ttl(client: TelemanClient) -> None:
+async def cmd_settings_ttl(client: TelemanClient) -> AccountTTL:
     return await get_account_ttl(client)
 
 
-async def cmd_settings_ttl_set(client: TelemanClient, days: int) -> None:
+async def cmd_settings_ttl_set(client: TelemanClient, days: int) -> AccountTTL:
     return await set_account_ttl(client, days)
 
 
@@ -347,7 +349,7 @@ def cmd_links(
 
 async def cmd_report(
     client: TelemanClient, user_id: int | str, reason_key: str, message: str = ""
-) -> None:
+) -> ReportResult:
     return await report_peer(client, user_id, reason_key, message)
 
 

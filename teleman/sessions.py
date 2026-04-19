@@ -48,4 +48,5 @@ async def get_sessions(client: TelemanClient) -> list[Session]:
 
 
 async def end_session(client: TelemanClient, session_hash: int) -> bool:
-    return await client.raw(ResetAuthorizationRequest(hash=session_hash))
+    result = await client.raw(ResetAuthorizationRequest(hash=session_hash))
+    return bool(result)

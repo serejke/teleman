@@ -265,7 +265,7 @@ async def _run_settings(client: TelemanClient, args: argparse.Namespace) -> None
 
 async def main() -> None:
     load_dotenv()
-    settings = Settings()  # type: ignore[call-arg]
+    settings = Settings()
 
     parser = _build_parser()
     args = parser.parse_args()

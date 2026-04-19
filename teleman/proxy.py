@@ -87,9 +87,7 @@ def load_proxies(accounts_dir: str) -> dict[str, ProxyConfig | None]:
     return adapter.validate_python(data)
 
 
-def get_proxy_for_account(
-    proxies: dict[str, ProxyConfig | None], name: str
-) -> BaseProxyConfig | None:
+def get_proxy_for_account(proxies: dict[str, ProxyConfig | None], name: str) -> ProxyConfig | None:
     if name not in proxies:
         raise KeyError(
             f"Account {name!r} not found in {PROXIES_FILENAME}. "

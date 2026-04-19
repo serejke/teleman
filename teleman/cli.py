@@ -62,7 +62,7 @@ def _format_message(msg: Message, my_name: str, sender_name: str, width: int) ->
 def _get_button_rows(raw_msg: Any) -> list[list[Any]] | None:
     buttons = getattr(raw_msg, "buttons", None)
     if buttons:
-        return buttons
+        return list(buttons)
     reply_markup = getattr(raw_msg, "reply_markup", None)
     if reply_markup:
         rows = getattr(reply_markup, "rows", None)
@@ -299,27 +299,31 @@ async def _cmd_chat(
 
     if is_group:
 
-        @client.raw.on(events.NewMessage(chats=[peer.id]))
+        @client.raw.on(events.NewMessage(chats=[peer.id]))  # type: ignore[untyped-decorator]  # telethon decorator is untyped
         async def _on_new_message(event: events.NewMessage.Event) -> None:
             msg = Message.from_telethon(event.message)
             if not msg.out:
                 _print_incoming(msg, event.message)
 
-        @client.raw.on(events.MessageEdited(chats=[peer.id]))
+        @client.raw.on(events.MessageEdited(chats=[peer.id]))  # type: ignore[untyped-decorator]  # telethon decorator is untyped
         async def _on_message_edited(event: events.MessageEdited.Event) -> None:
             msg = Message.from_telethon(event.message)
             if not msg.out:
                 _print_incoming(msg, event.message, edited=True)
     else:
 
-        @client.raw.on(events.NewMessage(from_users=[peer.id]))
-        async def _on_new_message(event: events.NewMessage.Event) -> None:
+        @client.raw.on(events.NewMessage(from_users=[peer.id]))  # type: ignore[untyped-decorator]  # telethon decorator is untyped
+        async def _on_new_message(
+            event: events.NewMessage.Event,
+        ) -> None:  # second definition in else branch
             msg = Message.from_telethon(event.message)
             if not msg.out:
                 _print_incoming(msg, event.message)
 
-        @client.raw.on(events.MessageEdited(from_users=[peer.id]))
-        async def _on_message_edited(event: events.MessageEdited.Event) -> None:
+        @client.raw.on(events.MessageEdited(from_users=[peer.id]))  # type: ignore[untyped-decorator]  # telethon decorator is untyped
+        async def _on_message_edited(
+            event: events.MessageEdited.Event,
+        ) -> None:  # second definition in else branch
             msg = Message.from_telethon(event.message)
             if not msg.out:
                 _print_incoming(msg, event.message, edited=True)
@@ -493,8 +497,8 @@ async def run(client: TelemanClient) -> None:
                 if len(args) < 2:
                     print("Usage: /privacy_set <key> <everyone|contacts|nobody>")
                     continue
-                resp = await commands.cmd_privacy_set(client, args[0], args[1])
-                for r in resp.rules:
+                privacy_resp = await commands.cmd_privacy_set(client, args[0], args[1])
+                for r in privacy_resp.rules:
                     print(f"  {r.label}: {r.level}")
             elif cmd == "/lockdown":
                 _print_lockdown(await commands.cmd_lockdown(client))
@@ -514,8 +518,8 @@ async def run(client: TelemanClient) -> None:
                 if not args:
                     print("Usage: /add <user>")
                     continue
-                resp = await commands.cmd_add(client, _parse_user_id(args[0]))
-                print(f"Added contact: {resp.user.first_name} (ID: {resp.user.id})")
+                add_resp = await commands.cmd_add(client, _parse_user_id(args[0]))
+                print(f"Added contact: {add_resp.user.first_name} (ID: {add_resp.user.id})")
             elif cmd == "/chats":
                 _print_chats(await commands.cmd_chats(client))
             elif cmd == "/contacts":
@@ -531,8 +535,8 @@ async def run(client: TelemanClient) -> None:
                 except ValueError:
                     print("Web session hash must be a number.")
                     continue
-                resp = await commands.cmd_web_end(client, web_hash)
-                print(f"Web session {resp.hash} ({resp.domain}) terminated.")
+                web_end_resp = await commands.cmd_web_end(client, web_hash)
+                print(f"Web session {web_end_resp.hash} ({web_end_resp.domain}) terminated.")
             elif cmd == "/web_end_all":
                 await commands.cmd_web_end_all(client)
                 print("All web sessions terminated.")
@@ -545,8 +549,8 @@ async def run(client: TelemanClient) -> None:
                 except ValueError:
                     print("Session hash must be a number.")
                     continue
-                resp = await commands.cmd_session_end(client, session_hash)
-                print(f"Session {resp.hash} ({resp.device_model}) terminated.")
+                sess_end_resp = await commands.cmd_session_end(client, session_hash)
+                print(f"Session {sess_end_resp.hash} ({sess_end_resp.device_model}) terminated.")
             elif cmd == "/nuke":
                 if not args:
                     print("Usage: /nuke <user>")
@@ -558,8 +562,8 @@ async def run(client: TelemanClient) -> None:
                     continue
                 await _cmd_report(client, _parse_user_id(args[0]))
             elif cmd == "/export_list":
-                resp = await commands.cmd_export_list(client)
-                for i, c in enumerate(resp.chats, 1):
+                export_list_resp = await commands.cmd_export_list(client)
+                for i, c in enumerate(export_list_resp.chats, 1):
                     print(f"  {i}. {c.title} ({c.type}, {c.chat_id})")
             elif cmd == "/sync":
                 await _repl_sync(client, args)
@@ -567,30 +571,33 @@ async def run(client: TelemanClient) -> None:
                 if not args:
                     print("Usage: /track <chat>")
                     continue
-                resp = await commands.cmd_track(client, " ".join(args))
-                print(f'  Tracking "{resp.title}" ({resp.chat_id})')
+                track_resp = await commands.cmd_track(client, " ".join(args))
+                print(f'  Tracking "{track_resp.title}" ({track_resp.chat_id})')
             elif cmd == "/untrack":
                 if not args:
                     print("Usage: /untrack <chat>")
                     continue
-                resp = await commands.cmd_untrack(client, " ".join(args))
-                print(f'  Untracked "{resp.title}" ({resp.chat_id})')
+                untrack_resp = await commands.cmd_untrack(client, " ".join(args))
+                print(f'  Untracked "{untrack_resp.title}" ({untrack_resp.chat_id})')
             elif cmd == "/tracked":
-                resp = commands.cmd_tracked()
-                if not resp.chats:
+                tracked_resp = commands.cmd_tracked()
+                if not tracked_resp.chats:
                     print("  No tracked chats.")
-                for c in resp.chats:
+                for tc in tracked_resp.chats:
                     print(
-                        f"  {c.title} ({c.chat_id}) — newest {c.newest_id}, "
-                        f"synced {c.last_sync_date:%Y-%m-%d %H:%M} UTC"
+                        f"  {tc.title} ({tc.chat_id}) — newest {tc.newest_id}, "
+                        f"synced {tc.last_sync_date:%Y-%m-%d %H:%M} UTC"
                     )
             elif cmd == "/checkpoints":
                 if not args:
                     print("Usage: /checkpoints <chat>")
                     continue
-                resp = await commands.cmd_checkpoints(client, " ".join(args))
-                print(f'  "{resp.title}" ({resp.chat_id}): {len(resp.checkpoints)} checkpoints')
-                for cp in resp.checkpoints:
+                cp_resp = await commands.cmd_checkpoints(client, " ".join(args))
+                print(
+                    f'  "{cp_resp.title}" ({cp_resp.chat_id}): '
+                    f"{len(cp_resp.checkpoints)} checkpoints"
+                )
+                for cp in cp_resp.checkpoints:
                     print(
                         f"    {cp.id:%Y-%m-%d %H:%M} UTC — +{cp.delta_count} msgs "
                         f"(id {cp.prev_newest_id} → {cp.newest_id})"
@@ -605,10 +612,10 @@ async def run(client: TelemanClient) -> None:
                     continue
                 link_peer = " ".join(link_peer_parts)
 
-                resp = commands.cmd_links(link_peer, after=link_after, before=link_before)
-                for item in resp.links:
+                links_resp = commands.cmd_links(link_peer, after=link_after, before=link_before)
+                for item in links_resp.links:
                     print(f"  {item.date:%Y-%m-%d %H:%M}  {item.url}")
-                print(f"  Total: {resp.total} links")
+                print(f"  Total: {links_resp.total} links")
             else:
                 print(f"Unknown command: {cmd}. Type /help for usage.")
         except Exception as exc:
