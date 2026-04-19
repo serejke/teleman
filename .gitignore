@@ -6,3 +6,5 @@ __pycache__/
 data/
 accounts/
 reports/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
