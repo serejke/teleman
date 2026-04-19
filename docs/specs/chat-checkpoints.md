@@ -57,6 +57,17 @@ A checkpoint is an entry in a per-chat `checkpoints.jsonl`. It records the resul
 - **Backfill never creates a checkpoint.** Going further back in history (`--since` with `--backfill`) is orthogonal to the forward checkpoint timeline.
 - Append-only. Never rewrite. Never delete.
 
+### Backfill streaming & resume
+
+- During a backfill, batches of messages are appended to
+  `messages.backfill.jsonl` in iteration order (newest-first) as they arrive
+  — bounded memory, bounded disk I/O.
+- On completion the tmp file is stream-reversed in ~64 KB blocks and
+  prepended to `messages.jsonl` via an atomic rename, then deleted.
+- If the process is interrupted, the tmp file is preserved. A subsequent
+  `sync --backfill --since DATE` reads the oldest message from the tmp's
+  tail and resumes iteration from that `offset_id` — no duplicate fetches.
+
 ### State file
 
 `state.json` per chat gains new fields and renames:

@@ -9,11 +9,14 @@ from teleman.client import TelemanClient
 from teleman.export.models import Checkpoint, ExportedMessage, ExportState, ForumTopic
 from teleman.export.resolver import resolve_chat
 from teleman.export.storage import (
+    append_backfill,
     append_checkpoint,
     append_messages,
+    finalize_backfill,
     get_chat_dir,
     get_data_dir,
-    prepend_messages,
+    read_backfill_head,
+    read_backfill_tail,
     read_state,
     write_meta,
     write_state,
@@ -121,14 +124,24 @@ async def _backfill_older(
 ) -> tuple[int, int | None, int | None]:
     """Fetch messages older than offset_id, newest→oldest, stop at `since` date.
 
-    Buffers the whole backfill in memory, then prepends chronologically.
-    Returns (count, new_oldest_id, seen_newest_id).
+    Streams batches to `messages.backfill.jsonl` as they arrive (iteration
+    order = newest-first). On completion, stream-reverses the tmp file and
+    prepends to messages.jsonl via atomic rename. If an earlier run was
+    interrupted and left a tmp file, this run resumes from the oldest
+    message already buffered there.
+    Returns (finalized_count, new_oldest_id, seen_newest_id).
     """
-    buffer: list[ExportedMessage] = []
-    new_oldest_id: int | None = None
-    seen_newest_id: int | None = None
+    tail = read_backfill_tail(chat_dir)
+    head = read_backfill_head(chat_dir) if tail is not None else None
 
-    async for msg in client.raw.iter_messages(entity, offset_id=offset_id):
+    resume_offset_id = tail[0] if tail is not None else offset_id
+
+    batch: list[ExportedMessage] = []
+    this_run_appended = 0
+    this_run_oldest_id: int | None = None
+    seen_newest_id: int | None = head[0] if head is not None else None
+
+    async for msg in client.raw.iter_messages(entity, offset_id=resume_offset_id):
         if since is not None and msg.date < since:
             break
         if until is not None and msg.date > until:
@@ -136,20 +149,27 @@ async def _backfill_older(
         if seen_newest_id is None:
             seen_newest_id = msg.id
         exported = ExportedMessage.from_telethon(msg, topic_root_ids=topic_root_ids)
-        buffer.append(exported)
-        new_oldest_id = msg.id
+        batch.append(exported)
+        this_run_oldest_id = msg.id
+        this_run_appended += 1
 
-        if on_progress and len(buffer) % BATCH_SIZE == 0:
-            on_progress(new_count, len(buffer))
+        if len(batch) >= BATCH_SIZE:
+            append_backfill(chat_dir, batch)
+            batch = []
+            if on_progress:
+                on_progress(new_count, this_run_appended)
 
-    if not buffer:
+    if batch:
+        append_backfill(chat_dir, batch)
+        if on_progress:
+            on_progress(new_count, this_run_appended)
+
+    if tail is None and this_run_appended == 0:
         return 0, None, None
 
-    buffer.reverse()
-    prepend_messages(chat_dir, buffer)
-    if on_progress:
-        on_progress(new_count, len(buffer))
-    return len(buffer), new_oldest_id, seen_newest_id
+    finalized = finalize_backfill(chat_dir)
+    new_oldest_id = this_run_oldest_id if this_run_oldest_id is not None else (tail[0] if tail else None)
+    return finalized, new_oldest_id, seen_newest_id
 
 
 async def sync_chat(
