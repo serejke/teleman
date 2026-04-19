@@ -54,6 +54,7 @@ uv run ruff format --check teleman/ tests/
 ## Privacy
 
 - Never include real chat names, usernames, user IDs, or chat IDs in files that get committed (code, skills, docs, tests). Use placeholders like `<chat>`, `12345`, `@example` in examples.
+- During development, never expose personal chats, personal information, exported data, session files, or account identifiers in committed code, commit messages, docs, skills, tests, or examples. Always use sample/placeholder values for anything that will be public (including commit messages and PR descriptions). If a real identifier leaked into a draft, scrub it before committing.
 
 ## Git Conventions
 
