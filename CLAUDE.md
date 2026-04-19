@@ -26,6 +26,7 @@ uv run ruff format --check teleman/ tests/
 - Pydantic V2 models for all data structures. Wrap Telethon responses at the boundary — never pass raw Telethon objects into application logic.
 - `from __future__ import annotations` in all modules.
 - Ruff for linting and formatting. Zero errors before committing.
+- See `.claude/rules/` for code quality standards.
 
 ## Architecture
 
