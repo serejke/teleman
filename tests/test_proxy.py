@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,6 +12,9 @@ from teleman.proxy import (
     get_proxy_for_account,
     load_proxies,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestHttpProxyConfig:
@@ -54,7 +57,9 @@ class TestSocks5ProxyConfig:
         }
 
     def test_to_telethon_kwargs_with_auth(self) -> None:
-        config = Socks5ProxyConfig(addr="1.2.3.4", port=1080, username="u", password="p", rdns=False)
+        config = Socks5ProxyConfig(
+            addr="1.2.3.4", port=1080, username="u", password="p", rdns=False
+        )
         result = config.to_telethon_kwargs()
         assert result == {
             "proxy": {
@@ -82,7 +87,9 @@ class TestSocks4ProxyConfig:
         }
 
     def test_to_telethon_kwargs_with_auth(self) -> None:
-        config = Socks4ProxyConfig(addr="1.2.3.4", port=1080, username="u", password="p", rdns=False)
+        config = Socks4ProxyConfig(
+            addr="1.2.3.4", port=1080, username="u", password="p", rdns=False
+        )
         result = config.to_telethon_kwargs()
         assert result == {
             "proxy": {
@@ -152,7 +159,7 @@ class TestLoadProxies:
         }
         (tmp_path / "proxies.json").write_text(json.dumps(data))
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="invalid"):
             load_proxies(str(tmp_path))
 
 

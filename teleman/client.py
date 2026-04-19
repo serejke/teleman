@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Any
+import getpass
+from typing import TYPE_CHECKING, Any
 
 from telethon import TelegramClient
 
-from teleman.config import AccountConfig
+if TYPE_CHECKING:
+    from teleman.config import AccountConfig
 
 
 class TelemanClient:
@@ -40,8 +42,6 @@ class TelemanClient:
                 await self._client.sign_in(phone, code)
             except Exception:
                 # 2FA may be required
-                import getpass
-
                 password = getpass.getpass("2FA password required: ")
                 await self._client.sign_in(password=password)
             print("Authorized successfully.")

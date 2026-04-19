@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from telethon.tl.functions.contacts import AddContactRequest
 
-from teleman.client import TelemanClient
 from teleman.models import Group, Peer, User
+
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 
 async def get_user(client: TelemanClient, user_id: int | str) -> User:

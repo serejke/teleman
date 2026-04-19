@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from teleman.client import TelemanClient
+from analysis.loader import load_messages
+from analysis.loader import resolve_chat as resolve_chat_path
+from telethon.tl.functions.contacts import GetContactsRequest
+
 from teleman.contacts import add_contact, get_peer, peer_name
 from teleman.export.resolver import list_dialogs, resolve_chat
 from teleman.export.storage import (
@@ -15,8 +18,16 @@ from teleman.export.storage import (
     write_state,
 )
 from teleman.export.sync import sync_chat as _sync_chat
-from teleman.messages import get_messages, send_message
+from teleman.links import extract_links
+from teleman.messages import (
+    delete_all_messages,
+    delete_dialog,
+    get_messages,
+    send_message,
+)
 from teleman.models import User
+from teleman.privacy import get_privacy, lockdown_privacy, set_privacy
+from teleman.report import report_peer
 from teleman.responses import (
     AddContactResponse,
     BatchSyncError,
@@ -45,6 +56,20 @@ from teleman.responses import (
     WebEndResponse,
     WebSessionsResponse,
 )
+from teleman.sessions import end_session, get_sessions
+from teleman.settings import (
+    end_all_web_sessions,
+    end_web_session,
+    get_2fa_status,
+    get_account_ttl,
+    get_web_sessions,
+    set_account_ttl,
+)
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from teleman.client import TelemanClient
 
 
 async def cmd_me(client: TelemanClient) -> User:
@@ -61,7 +86,9 @@ async def cmd_chats(client: TelemanClient) -> ChatsResponse:
         if hasattr(entity, "first_name"):
             kind = "user"
         elif hasattr(entity, "title"):
-            is_group = getattr(entity, "megagroup", False) or not getattr(entity, "broadcast", False)
+            is_group = getattr(entity, "megagroup", False) or not getattr(
+                entity, "broadcast", False
+            )
             kind = "group" if is_group else "channel"
         else:
             kind = "unknown"
@@ -77,14 +104,14 @@ async def cmd_chats(client: TelemanClient) -> ChatsResponse:
 
 
 async def cmd_contacts(client: TelemanClient) -> ContactsResponse:
-    from telethon.tl.functions.contacts import GetContactsRequest
-
     result = await client.raw(GetContactsRequest(hash=0))
     contacts = [User.from_telethon(u) for u in result.users]
     return ContactsResponse(contacts=contacts)
 
 
-async def cmd_messages(client: TelemanClient, peer_id: int | str, limit: int = 20) -> MessagesResponse:
+async def cmd_messages(
+    client: TelemanClient, peer_id: int | str, limit: int = 20
+) -> MessagesResponse:
     messages = await get_messages(client, peer_id, limit=limit)
     return MessagesResponse(peer_id=peer_id, messages=messages)
 
@@ -100,36 +127,26 @@ async def cmd_add(client: TelemanClient, user_id: int | str) -> AddContactRespon
 
 
 async def cmd_privacy(client: TelemanClient) -> PrivacyResponse:
-    from teleman.privacy import get_privacy
-
     rules = await get_privacy(client)
     return PrivacyResponse(rules=rules)
 
 
 async def cmd_privacy_set(client: TelemanClient, key: str, level: str) -> PrivacyResponse:
-    from teleman.privacy import set_privacy
-
     rule = await set_privacy(client, key, level)
     return PrivacyResponse(rules=[rule])
 
 
 async def cmd_lockdown(client: TelemanClient) -> LockdownResponse:
-    from teleman.privacy import lockdown_privacy
-
     rules = await lockdown_privacy(client)
     return LockdownResponse(rules=rules)
 
 
 async def cmd_sessions(client: TelemanClient) -> SessionsResponse:
-    from teleman.sessions import get_sessions
-
     sessions = await get_sessions(client)
     return SessionsResponse(sessions=sessions)
 
 
 async def cmd_session_end(client: TelemanClient, session_hash: int) -> SessionEndResponse:
-    from teleman.sessions import end_session, get_sessions
-
     sessions = await get_sessions(client)
     target = next((s for s in sessions if s.hash == session_hash), None)
     if target is None:
@@ -141,10 +158,6 @@ async def cmd_session_end(client: TelemanClient, session_hash: int) -> SessionEn
 
 
 async def cmd_settings(client: TelemanClient) -> SettingsOverview:
-    from teleman.privacy import get_privacy
-    from teleman.sessions import get_sessions
-    from teleman.settings import get_2fa_status, get_account_ttl, get_web_sessions
-
     tfa = await get_2fa_status(client)
     ttl = await get_account_ttl(client)
     privacy_rules = await get_privacy(client)
@@ -160,15 +173,11 @@ async def cmd_settings(client: TelemanClient) -> SettingsOverview:
 
 
 async def cmd_web_sessions(client: TelemanClient) -> WebSessionsResponse:
-    from teleman.settings import get_web_sessions
-
     sessions = await get_web_sessions(client)
     return WebSessionsResponse(sessions=sessions)
 
 
 async def cmd_web_end(client: TelemanClient, session_hash: int) -> WebEndResponse:
-    from teleman.settings import end_web_session, get_web_sessions
-
     sessions = await get_web_sessions(client)
     target = next((s for s in sessions if s.hash == session_hash), None)
     if target is None:
@@ -178,27 +187,19 @@ async def cmd_web_end(client: TelemanClient, session_hash: int) -> WebEndRespons
 
 
 async def cmd_web_end_all(client: TelemanClient) -> WebEndAllResponse:
-    from teleman.settings import end_all_web_sessions
-
     await end_all_web_sessions(client)
     return WebEndAllResponse()
 
 
 async def cmd_settings_2fa(client: TelemanClient) -> None:
-    from teleman.settings import get_2fa_status
-
     return await get_2fa_status(client)
 
 
 async def cmd_settings_ttl(client: TelemanClient) -> None:
-    from teleman.settings import get_account_ttl
-
     return await get_account_ttl(client)
 
 
 async def cmd_settings_ttl_set(client: TelemanClient, days: int) -> None:
-    from teleman.settings import set_account_ttl
-
     return await set_account_ttl(client, days)
 
 
@@ -277,7 +278,9 @@ async def _set_tracked(client: TelemanClient, query: str, tracked: bool) -> Trac
     chat_dir = get_chat_dir(get_data_dir(), meta.chat_id)
     state = read_state(chat_dir)
     if state is None:
-        raise ValueError(f'No export state for "{meta.title}". Run `sync <chat> --since <date>` to bootstrap.')
+        raise ValueError(
+            f'No export state for "{meta.title}". Run `sync <chat> --since <date>` to bootstrap.'
+        )
     state.tracked = tracked
     write_state(chat_dir, state)
     return TrackResponse(chat_id=meta.chat_id, title=meta.title, tracked=tracked)
@@ -326,10 +329,7 @@ def cmd_links(
     after: datetime | None = None,
     before: datetime | None = None,
 ) -> LinksResponse:
-    from analysis.loader import load_messages, resolve_chat
-    from teleman.links import extract_links
-
-    path = resolve_chat(query)
+    path = resolve_chat_path(query)
     messages = load_messages(path)
     extracted = extract_links(messages, after=after, before=before)
     items = [
@@ -345,15 +345,13 @@ def cmd_links(
     return LinksResponse(query=query, links=items, total=len(items))
 
 
-async def cmd_report(client: TelemanClient, user_id: int | str, reason_key: str, message: str = "") -> None:
-    from teleman.report import report_peer
-
+async def cmd_report(
+    client: TelemanClient, user_id: int | str, reason_key: str, message: str = ""
+) -> None:
     return await report_peer(client, user_id, reason_key, message)
 
 
 async def cmd_nuke(client: TelemanClient, peer_id: int | str) -> dict[str, object]:
-    from teleman.messages import delete_all_messages, delete_dialog
-
     peer = await get_peer(client, peer_id)
     display = peer_name(peer)
     count = await delete_all_messages(client, peer_id)

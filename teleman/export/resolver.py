@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from teleman.client import TelemanClient
 from teleman.export.models import ChatMeta
+
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 
 async def list_dialogs(client: TelemanClient) -> list[tuple[ChatMeta, Any]]:

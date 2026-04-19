@@ -171,17 +171,11 @@ class ExportedMessage(BaseModel):
         topic_id: int | None = None
         if reply_to is not None and getattr(reply_to, "forum_topic", False):
             top_id = getattr(reply_to, "reply_to_top_id", None)
-            if top_id is not None:
-                topic_id = top_id
-            else:
-                # First message in a topic: reply_to_msg_id IS the topic id
-                topic_id = reply_to_msg_id
+            # First message in a topic: reply_to_msg_id IS the topic id
+            topic_id = top_id if top_id is not None else reply_to_msg_id
         elif topic_root_ids is not None:
-            # Forum group but no reply_to or non-topic reply: default to General
-            if obj.id in topic_root_ids:
-                topic_id = obj.id  # This message creates its own topic
-            else:
-                topic_id = 1  # Default "General" topic
+            # A message creates its own topic when its id is a root id; otherwise General (1)
+            topic_id = obj.id if obj.id in topic_root_ids else 1
 
         fwd_from_id, fwd_from_name = _extract_forward_from(getattr(obj, "forward", None))
 

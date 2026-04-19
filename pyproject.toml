@@ -17,11 +17,36 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.11",
     "tiktoken>=0.12.0",
+    "mypy>=1.11",
+    "import-linter>=2.0",
 ]
+
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "."
+packages = ["teleman"]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = ["telethon.*", "socks.*", "tiktoken.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py313"
-line-length = 120
+line-length = 100
+src = ["teleman", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -29,16 +54,96 @@ select = [
     "W",     # pycodestyle warnings
     "F",     # pyflakes
     "I",     # isort
+    "N",     # pep8-naming
     "UP",    # pyupgrade
     "B",     # flake8-bugbear
+    "A",     # flake8-builtins
+    "C4",    # flake8-comprehensions
+    "DTZ",   # flake8-datetimez
+    "T20",   # flake8-print
     "SIM",   # flake8-simplify
-    "RUF",   # ruff-specific rules
-    "ANN",   # flake8-annotations — enforce type annotations
+    "TCH",   # flake8-type-checking
+    "TID",   # flake8-tidy-imports (banned-api, relative imports)
+    "RUF",   # ruff-specific
+    "PT",    # flake8-pytest-style
+    "S",     # flake8-bandit (security)
+    "ANN",   # flake8-annotations
+    "ARG",   # flake8-unused-arguments
+    "RET",   # flake8-return
+    "PIE",   # flake8-pie
+    "PLC",   # pylint convention
+    "PLE",   # pylint errors
+    "PLW",   # pylint warnings
+    "FLY",   # flynt
+    "PERF",  # perflint
+    "FURB",  # refurb
 ]
 ignore = [
-    "ANN401",  # dynamically typed expressions (Any) — needed for Telethon boundary
-    "SIM108",  # ternary operator — readability preference
+    "ANN401",  # enforced by code-quality convention, not lint
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",  # assert allowed in tests
+    "S106",  # hardcoded passwords are test fixtures, not secrets
+]
+# CLI entry points and interactive shell legitimately use print for user-facing output.
+"teleman/__main__.py" = ["T201"]
+"teleman/cli.py" = ["T201"]
+"teleman/client.py" = ["T201"]
 
 [tool.ruff.lint.isort]
 required-imports = ["from __future__ import annotations"]
+known-first-party = ["teleman"]
+
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic BaseModel needs runtime access to field-type annotations.
+# Keep these imports at runtime even when used only for typing.
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+runtime-evaluated-decorators = ["pydantic.validate_call"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"  # TID252: force absolute imports everywhere
+
+# TID251: forbid specific imports. Extend per project — examples below.
+# [tool.ruff.lint.flake8-tidy-imports.banned-api]
+# "datetime.datetime.utcnow".msg = "Use datetime.now(UTC) — naive datetimes are banned."
+
+# ---------------------------------------------------------------------------
+# import-linter: architectural boundary contracts over the whole import graph.
+# Tune per project. Run with: `uv run lint-imports`
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["teleman"]
+
+# Domain purity: the domain layer must not import infra, frameworks, or I/O.
+# [[tool.importlinter.contracts]]
+# name = "Domain is pure"
+# type = "forbidden"
+# source_modules = ["teleman.domain"]
+# forbidden_modules = [
+#     "teleman.infra",
+#     "teleman.api",
+#     "sqlalchemy",
+#     "fastapi",
+#     "httpx",
+# ]
+
+# Layering: higher layers may import lower layers, never the reverse.
+# [[tool.importlinter.contracts]]
+# name = "Layered architecture"
+# type = "layers"
+# layers = [
+#     "teleman.api",
+#     "teleman.services",
+#     "teleman.domain",
+# ]
+
+# Feature independence: sibling feature packages must not cross-import.
+# [[tool.importlinter.contracts]]
+# name = "Features are independent"
+# type = "independence"
+# modules = [
+#     "teleman.features.<feature_a>",
+#     "teleman.features.<feature_b>",
+# ]

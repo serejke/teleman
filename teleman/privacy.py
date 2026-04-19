@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel
 from telethon.tl.functions.account import GetPrivacyRequest, SetPrivacyRequest
 from telethon.tl.types import (
@@ -21,7 +23,8 @@ from telethon.tl.types import (
     PrivacyValueDisallowAll,
 )
 
-from teleman.client import TelemanClient
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 PRIVACY_KEYS: list[tuple[str, type]] = [
     ("phone_number", InputPrivacyKeyPhoneNumber),

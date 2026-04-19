@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
 PROXIES_FILENAME = "proxies.json"
 
@@ -83,13 +83,13 @@ def load_proxies(accounts_dir: str) -> dict[str, ProxyConfig | None]:
     if not path.exists():
         return {}
     data = json.loads(path.read_text())
-    from pydantic import TypeAdapter
-
     adapter = TypeAdapter(dict[str, ProxyConfig | None])
     return adapter.validate_python(data)
 
 
-def get_proxy_for_account(proxies: dict[str, ProxyConfig | None], name: str) -> BaseProxyConfig | None:
+def get_proxy_for_account(
+    proxies: dict[str, ProxyConfig | None], name: str
+) -> BaseProxyConfig | None:
     if name not in proxies:
         raise KeyError(
             f"Account {name!r} not found in {PROXIES_FILENAME}. "

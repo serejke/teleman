@@ -4,14 +4,32 @@ import asyncio
 import readline  # noqa: F401 — enables arrow-key history in input()
 import shutil
 import textwrap
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
-from teleman.client import TelemanClient
-from teleman.contacts import get_peer, peer_name
-from teleman.messages import get_raw_messages, send_message
+from telethon import events
+from telethon.errors import (
+    ChatWriteForbiddenError,
+    SlowModeWaitError,
+    UserBannedInChannelError,
+)
+from telethon.tl.functions.messages import StartBotRequest
+
+from teleman import commands
+from teleman.contacts import get_peer, get_user, peer_name
+from teleman.export.sync import sync_chat
+from teleman.messages import (
+    delete_all_messages,
+    delete_dialog,
+    get_raw_messages,
+    send_message,
+)
 from teleman.models import Group, Message, User
+from teleman.report import REPORT_REASONS, report_peer
+
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 
 def _sender_display_name(raw_sender: Any) -> str:
@@ -33,13 +51,11 @@ def _format_message(msg: Message, my_name: str, sender_name: str, width: int) ->
 
     if msg.out:
         formatted = [header.rjust(width)]
-        for line in lines:
-            formatted.append(line.rjust(width))
+        formatted.extend(line.rjust(width) for line in lines)
     else:
         indent = "  "
         formatted = [f"{indent}{header}"]
-        for line in lines:
-            formatted.append(f"{indent}{line}")
+        formatted.extend(f"{indent}{line}" for line in lines)
     return "\n".join(formatted)
 
 
@@ -93,10 +109,10 @@ def _parse_date_flags(
     i = 0
     while i < len(args):
         if args[i] == after_flag and i + 1 < len(args):
-            after = datetime.strptime(args[i + 1], "%Y-%m-%d")
+            after = datetime.strptime(args[i + 1], "%Y-%m-%d").replace(tzinfo=UTC)
             i += 2
         elif args[i] == before_flag and i + 1 < len(args):
-            before = datetime.strptime(args[i + 1], "%Y-%m-%d")
+            before = datetime.strptime(args[i + 1], "%Y-%m-%d").replace(tzinfo=UTC)
             i += 2
         else:
             remaining.append(args[i])
@@ -203,7 +219,9 @@ def _print_web_sessions(resp: Any) -> None:
 
 def _print_settings_overview(resp: Any) -> None:
     tfa_status = "enabled" if resp.two_factor.enabled else "disabled"
-    recovery = ", recovery email: yes" if resp.two_factor.has_recovery_email else ", recovery email: no"
+    recovery = (
+        ", recovery email: yes" if resp.two_factor.has_recovery_email else ", recovery email: no"
+    )
     print("Settings overview:")
     print()
     print(f"  2FA: {tfa_status}{recovery}")
@@ -231,10 +249,6 @@ async def _cmd_chat(
     limit: int = 20,
     start_param: str | None = None,
 ) -> None:
-    from telethon import events
-    from telethon.errors import ChatWriteForbiddenError, SlowModeWaitError, UserBannedInChannelError
-    from telethon.tl.functions.messages import StartBotRequest
-
     peer = await get_peer(client, user_id)
 
     if start_param and not isinstance(peer, Group):
@@ -359,9 +373,6 @@ async def _cmd_chat(
 
 
 async def _cmd_report(client: TelemanClient, user_id: int | str) -> None:
-    from teleman.contacts import get_user
-    from teleman.report import REPORT_REASONS, report_peer
-
     user = await get_user(client, user_id)
     print(f"Reporting {user.first_name} (ID: {user.id})")
 
@@ -391,12 +402,11 @@ async def _cmd_report(client: TelemanClient, user_id: int | str) -> None:
 
 
 async def _cmd_nuke(client: TelemanClient, user_id: int | str) -> None:
-    from teleman.messages import delete_all_messages, delete_dialog
-
     peer = await get_peer(client, user_id)
     display = peer_name(peer)
     confirm = await _input(
-        f"Delete ALL messages with {display} (ID: {peer.id}) for BOTH sides and remove chat? Type YES to confirm: "
+        f"Delete ALL messages with {display} (ID: {peer.id}) for BOTH sides "
+        "and remove chat? Type YES to confirm: "
     )
     if confirm.strip() != "YES":
         print("Aborted.")
@@ -410,8 +420,6 @@ async def _cmd_nuke(client: TelemanClient, user_id: int | str) -> None:
 
 
 async def run(client: TelemanClient) -> None:
-    from teleman import commands
-
     print("teleman — type /help for commands, /quit to exit")
     while True:
         try:
@@ -427,7 +435,7 @@ async def run(client: TelemanClient) -> None:
         try:
             if cmd == "/quit":
                 break
-            elif cmd == "/help":
+            if cmd == "/help":
                 print("Commands:")
                 print("  /me                       — show current account info")
                 print("  /settings                 — security & privacy overview")
@@ -446,13 +454,21 @@ async def run(client: TelemanClient) -> None:
                 print("  /web_end <hash>           — terminate a web session by hash")
                 print("  /web_end_all              — terminate all web sessions")
                 print()
-                print("  /chat <peer> [n]          — chat with a user/group (show last n messages, default 20)")
-                print("  /chat <t.me link>         — open a t.me deep link (sends /start param to bots)")
+                print(
+                    "  /chat <peer> [n]          — chat with a user/group "
+                    "(show last n messages, default 20)"
+                )
+                print(
+                    "  /chat <t.me link>         — open a t.me deep link "
+                    "(sends /start param to bots)"
+                )
                 print("  /add <user>               — add contact")
                 print("  <peer>/<user> can be a numeric ID, @username, or t.me link")
                 print("  /chats                    — list all chats")
                 print("  /contacts                 — list contacts")
-                print("  /nuke <peer>              — delete all messages (both sides) and remove chat")
+                print(
+                    "  /nuke <peer>              — delete all messages (both sides) and remove chat"
+                )
                 print("  /report <user>            — report a user for abuse")
                 print()
                 print("  /export_list              — list chats available for sync")
@@ -600,17 +616,15 @@ async def run(client: TelemanClient) -> None:
 
 
 async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
-    from datetime import UTC
-
-    from teleman import commands
-
     if "--all" in args:
         if len(args) > 1:
             print("Usage: /sync --all")
             return
         resp = await commands.cmd_sync_all(client)
         for r in resp.results:
-            cp = f", checkpoint {r.checkpoint.id:%Y-%m-%d %H:%M}" if r.checkpoint is not None else ""
+            cp = (
+                f", checkpoint {r.checkpoint.id:%Y-%m-%d %H:%M}" if r.checkpoint is not None else ""
+            )
             print(f'  "{r.title}" ({r.chat_id}): +{r.new_count} new, {r.total_messages} total{cp}')
         for err in resp.errors:
             print(f"  ERROR {err.chat_id}: {err.error}")
@@ -634,8 +648,6 @@ async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
             flush=True,
         )
 
-    from teleman.export.sync import sync_chat
-
     result = await sync_chat(
         client,
         query,
@@ -651,7 +663,11 @@ async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
             f"(or --all-history to fetch everything)."
         )
         return
-    cp_str = f", checkpoint {result.checkpoint.id:%Y-%m-%d %H:%M}" if result.checkpoint is not None else ""
+    cp_str = (
+        f", checkpoint {result.checkpoint.id:%Y-%m-%d %H:%M}"
+        if result.checkpoint is not None
+        else ""
+    )
     print(
         f'  Synced "{result.title}": +{result.new_count} new, '
         f"+{result.backfilled_count} backfilled ({result.total_messages} total){cp_str}"
@@ -659,8 +675,6 @@ async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
 
 
 async def _repl_settings(client: TelemanClient, section: str | None) -> None:
-    from teleman import commands
-
     if section is None:
         _print_settings_overview(await commands.cmd_settings(client))
     elif section == "2fa":

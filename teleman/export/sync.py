@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from teleman.client import TelemanClient
+from telethon.tl.functions.messages import GetForumTopicsRequest
+
 from teleman.export.models import Checkpoint, ExportedMessage, ExportState, ForumTopic
 from teleman.export.resolver import resolve_chat
 from teleman.export.storage import (
@@ -23,6 +23,12 @@ from teleman.export.storage import (
     write_topics,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    from teleman.client import TelemanClient
+
 BATCH_SIZE = 100
 
 
@@ -38,8 +44,6 @@ class SyncResult:
 
 
 async def _fetch_forum_topics(client: TelemanClient, entity: object) -> list[ForumTopic]:
-    from telethon.tl.functions.messages import GetForumTopicsRequest
-
     topics: list[ForumTopic] = []
     offset_date: datetime | None = None
     offset_id = 0
@@ -55,8 +59,7 @@ async def _fetch_forum_topics(client: TelemanClient, entity: object) -> list[For
                 limit=100,
             )
         )
-        for t in result.topics:
-            topics.append(ForumTopic.from_telethon(t))
+        topics.extend(ForumTopic.from_telethon(t) for t in result.topics)
 
         if not result.topics or len(topics) >= result.count:
             break
@@ -170,7 +173,9 @@ async def _backfill_older(
         return 0, None, None, None
 
     finalized = finalize_backfill(chat_dir)
-    new_oldest_id = this_run_oldest_id if this_run_oldest_id is not None else (tail[0] if tail else None)
+    new_oldest_id = (
+        this_run_oldest_id if this_run_oldest_id is not None else (tail[0] if tail else None)
+    )
     return finalized, new_oldest_id, seen_newest_id, seen_newest_date
 
 
@@ -267,10 +272,14 @@ async def sync_chat(
     total_messages = prior_total + new_count + backfill_count
 
     newest_id = (
-        new_newest_id if new_newest_id is not None else (state.newest_id if state else seen_newest_from_backfill)
+        new_newest_id
+        if new_newest_id is not None
+        else (state.newest_id if state else seen_newest_from_backfill)
     )
     oldest_id = (
-        new_oldest_id if new_oldest_id is not None else (state.oldest_id if state else seen_newest_from_backfill)
+        new_oldest_id
+        if new_oldest_id is not None
+        else (state.oldest_id if state else seen_newest_from_backfill)
     )
 
     effective_tracked = state.tracked if state is not None else True
@@ -278,7 +287,9 @@ async def sync_chat(
     # Checkpoint rule: whenever newest_id advances.
     checkpoint: Checkpoint | None = None
     prev_newest = state.newest_id if state else 0
-    cp_newest_date = new_newest_date if new_newest_date is not None else seen_newest_date_from_backfill
+    cp_newest_date = (
+        new_newest_date if new_newest_date is not None else seen_newest_date_from_backfill
+    )
     if newest_id is not None and newest_id > prev_newest and cp_newest_date is not None:
         delta = newest_id - prev_newest if state else (new_count + backfill_count)
         checkpoint = Checkpoint(

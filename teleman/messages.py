@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from teleman.client import TelemanClient
 from teleman.models import Message
+
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 
 async def get_messages(client: TelemanClient, user_id: int | str, limit: int = 20) -> list[Message]:

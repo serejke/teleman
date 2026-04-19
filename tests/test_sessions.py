@@ -10,7 +10,7 @@ from teleman.sessions import Session, end_session, get_sessions
 
 def _make_raw_auth(
     *,
-    hash: int = 123,
+    auth_hash: int = 123,
     current: bool = False,
     device_model: str = "iPhone 15",
     platform: str = "iOS",
@@ -25,7 +25,7 @@ def _make_raw_auth(
 ) -> SimpleNamespace:
     now = datetime.now(tz=UTC)
     return SimpleNamespace(
-        hash=hash,
+        hash=auth_hash,
         current=current,
         device_model=device_model,
         platform=platform,
@@ -42,7 +42,7 @@ def _make_raw_auth(
 
 class TestSessionFromTelethon:
     def test_basic_fields(self) -> None:
-        raw = _make_raw_auth(hash=42, current=True, device_model="Pixel 8", ip="5.6.7.8")
+        raw = _make_raw_auth(auth_hash=42, current=True, device_model="Pixel 8", ip="5.6.7.8")
         session = Session.from_telethon(raw)
         assert session.hash == 42
         assert session.current is True
@@ -68,7 +68,7 @@ class TestSessionFromTelethon:
 
 class TestGetSessions:
     def test_returns_sessions(self) -> None:
-        raw_auths = [_make_raw_auth(hash=1, current=True), _make_raw_auth(hash=2)]
+        raw_auths = [_make_raw_auth(auth_hash=1, current=True), _make_raw_auth(auth_hash=2)]
         mock_client = AsyncMock()
         mock_client.raw = AsyncMock(return_value=SimpleNamespace(authorizations=raw_auths))
 

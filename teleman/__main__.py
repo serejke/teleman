@@ -11,6 +11,8 @@ from typing import Any
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
+from teleman import commands
+from teleman.cli import run as run_repl
 from teleman.client import TelemanClient
 from teleman.config import Settings, list_accounts, load_account
 from teleman.proxy import get_proxy_for_account, load_proxies
@@ -131,7 +133,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sync chat(s): forward catch-up + backward fill of missing history",
     )
     p.add_argument("chat", nargs="*", help="Chat name or ID (omit with --all)")
-    p.add_argument("--all", action="store_true", help="Sync every tracked chat (forward catch-up only)")
+    p.add_argument(
+        "--all", action="store_true", help="Sync every tracked chat (forward catch-up only)"
+    )
     p.add_argument("--since", help="Stop the backward fill at this date (YYYY-MM-DD)")
     p.add_argument("--until", help="Filter out messages newer than this date (YYYY-MM-DD)")
     p.add_argument(
@@ -160,8 +164,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 async def _run_command(client: TelemanClient, args: argparse.Namespace) -> None:
-    from teleman import commands
-
     cmd = args.command
 
     if cmd == "me":
@@ -225,14 +227,16 @@ async def _run_command(client: TelemanClient, args: argparse.Namespace) -> None:
     elif cmd == "checkpoints":
         _json_out(await commands.cmd_checkpoints(client, " ".join(args.chat)))
     elif cmd == "links":
-        after = datetime.strptime(args.after, "%Y-%m-%d") if args.after else None
-        before = datetime.strptime(args.before, "%Y-%m-%d") if args.before else None
+        after = (
+            datetime.strptime(args.after, "%Y-%m-%d").replace(tzinfo=UTC) if args.after else None
+        )
+        before = (
+            datetime.strptime(args.before, "%Y-%m-%d").replace(tzinfo=UTC) if args.before else None
+        )
         _json_out(commands.cmd_links(args.chat, after=after, before=before))
 
 
 async def _run_settings(client: TelemanClient, args: argparse.Namespace) -> None:
-    from teleman import commands
-
     section = args.section
     if section is None:
         _json_out(await commands.cmd_settings(client))
@@ -268,11 +272,9 @@ async def main() -> None:
 
     # Default to REPL when no subcommand given
     if args.command is None or args.command == "repl":
-        from teleman.cli import run
-
         client = await _connect(settings, args.account)
         try:
-            await run(client)
+            await run_repl(client)
         finally:
             await client.disconnect()
         return

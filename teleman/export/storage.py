@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from teleman.export.models import ChatMeta, Checkpoint, ExportedMessage, ExportState, ForumTopic
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 DATA_DIR_NAME = "data"
 EXPORTS_DIR_NAME = "exports"
@@ -79,8 +82,8 @@ def read_checkpoints(chat_dir: Path) -> list[Checkpoint]:
         return []
     checkpoints: list[Checkpoint] = []
     with path.open() as f:
-        for line in f:
-            line = line.strip()
+        for raw_line in f:
+            line = raw_line.strip()
             if line:
                 checkpoints.append(Checkpoint.model_validate_json(line))
     return checkpoints

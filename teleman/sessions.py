@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from telethon.tl.functions.account import GetAuthorizationsRequest, ResetAuthorizationRequest
 
-from teleman.client import TelemanClient
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 
 class Session(BaseModel):

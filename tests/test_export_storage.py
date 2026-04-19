@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from teleman.export.models import ChatMeta, Checkpoint, ExportedMessage, ExportState
 from teleman.export.storage import (
@@ -22,6 +22,9 @@ from teleman.export.storage import (
     write_meta,
     write_state,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestGetChatDir:
@@ -79,7 +82,9 @@ class TestCheckpointIO:
         now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
         cp1 = Checkpoint(id=now, created_at=now, newest_id=100, prev_newest_id=0, delta_count=100)
         later = datetime(2026, 3, 25, 16, 0, tzinfo=UTC)
-        cp2 = Checkpoint(id=later, created_at=later, newest_id=250, prev_newest_id=100, delta_count=150)
+        cp2 = Checkpoint(
+            id=later, created_at=later, newest_id=250, prev_newest_id=100, delta_count=150
+        )
 
         append_checkpoint(tmp_path, cp1)
         append_checkpoint(tmp_path, cp2)
@@ -104,14 +109,18 @@ class TestListTrackedChatDirs:
         tracked_dir.mkdir()
         write_state(
             tracked_dir,
-            ExportState(newest_id=5, oldest_id=1, last_sync_date=now, total_messages=5, tracked=True),
+            ExportState(
+                newest_id=5, oldest_id=1, last_sync_date=now, total_messages=5, tracked=True
+            ),
         )
 
         untracked_dir = exports / "222"
         untracked_dir.mkdir()
         write_state(
             untracked_dir,
-            ExportState(newest_id=5, oldest_id=1, last_sync_date=now, total_messages=5, tracked=False),
+            ExportState(
+                newest_id=5, oldest_id=1, last_sync_date=now, total_messages=5, tracked=False
+            ),
         )
 
         empty_dir = exports / "333"

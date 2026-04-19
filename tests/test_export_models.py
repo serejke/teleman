@@ -140,7 +140,9 @@ class TestExportedMessageFromTelethon:
         date = datetime(2026, 1, 15, 10, 33, tzinfo=UTC)
 
         class MessageMediaPhoto:
-            photo = SimpleNamespace(sizes=[SimpleNamespace(size=None, sizes=[10000, 50000, 120000])])
+            photo = SimpleNamespace(
+                sizes=[SimpleNamespace(size=None, sizes=[10000, 50000, 120000])]
+            )
             document = None
 
         obj = SimpleNamespace(
@@ -287,7 +289,9 @@ class TestExportState:
     def test_tracked_defaults_true(self) -> None:
         now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
         state = ExportState.model_validate_json(
-            '{"newest_id": 1, "oldest_id": 1, "last_sync_date": "' + now.isoformat() + '", "total_messages": 1}'
+            '{"newest_id": 1, "oldest_id": 1, "last_sync_date": "'
+            + now.isoformat()
+            + '", "total_messages": 1}'
         )
         assert state.tracked is True
 

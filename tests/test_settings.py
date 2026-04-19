@@ -26,13 +26,17 @@ class TestTwoFactorStatus:
         assert status.has_recovery_email is True
 
     def test_from_telethon_disabled(self) -> None:
-        raw = SimpleNamespace(has_password=False, has_recovery=False, email_unconfirmed_pattern=None)
+        raw = SimpleNamespace(
+            has_password=False, has_recovery=False, email_unconfirmed_pattern=None
+        )
         status = TwoFactorStatus.from_telethon(raw)
         assert status.enabled is False
         assert status.has_recovery_email is False
 
     def test_from_telethon_unconfirmed_email(self) -> None:
-        raw = SimpleNamespace(has_password=True, has_recovery=False, email_unconfirmed_pattern="t***@example.com")
+        raw = SimpleNamespace(
+            has_password=True, has_recovery=False, email_unconfirmed_pattern="t***@example.com"
+        )
         status = TwoFactorStatus.from_telethon(raw)
         assert status.enabled is True
         assert status.has_recovery_email is True

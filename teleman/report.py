@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import BaseModel
 from telethon.tl.functions.account import ReportPeerRequest
 from telethon.tl.types import (
@@ -14,9 +16,11 @@ from telethon.tl.types import (
     InputReportReasonViolence,
 )
 
-from teleman.client import TelemanClient
 from teleman.contacts import get_user
 from teleman.models import User
+
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 REPORT_REASONS: dict[str, tuple[str, type]] = {
     "spam": ("Spam", InputReportReasonSpam),

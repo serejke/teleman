@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from teleman.export.models import ExportedMessage
+if TYPE_CHECKING:
+    from teleman.export.models import ExportedMessage
 
 URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
 

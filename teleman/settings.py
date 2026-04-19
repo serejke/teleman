@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from telethon.tl.functions.account import (
@@ -14,7 +14,8 @@ from telethon.tl.functions.account import (
 )
 from telethon.tl.types import AccountDaysTTL
 
-from teleman.client import TelemanClient
+if TYPE_CHECKING:
+    from teleman.client import TelemanClient
 
 
 class TwoFactorStatus(BaseModel):
@@ -26,7 +27,8 @@ class TwoFactorStatus(BaseModel):
         return cls(
             enabled=obj.has_password or False,
             has_recovery_email=bool(
-                getattr(obj, "email_unconfirmed_pattern", None) or getattr(obj, "has_recovery", False)
+                getattr(obj, "email_unconfirmed_pattern", None)
+                or getattr(obj, "has_recovery", False)
             ),
         )
 
