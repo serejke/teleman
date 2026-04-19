@@ -33,21 +33,28 @@ allowed-tools: Bash, Read
 | `settings sessions`           | Sessions (same as `sessions`)                 | `uv run python -m teleman settings sessions`         |
 | `settings web`                | Web authorizations                            | `uv run python -m teleman settings web`              |
 | `web-sessions`                | List web authorizations                       | `uv run python -m teleman web-sessions`              |
-| `export-list`                 | List chats available for export               | `uv run python -m teleman export-list`               |
+| `export-list`                 | List chats available for sync/export          | `uv run python -m teleman export-list`               |
+| `tracked`                     | List chats tracked for batch sync             | `uv run python -m teleman tracked`                   |
+| `checkpoints <chat>`          | List sync checkpoints for a chat              | `uv run python -m teleman checkpoints @example`      |
 
 ### Write commands (have side effects)
 
-| Command                     | Description                                  | Example                                                    |
-| --------------------------- | -------------------------------------------- | ---------------------------------------------------------- |
-| `send <peer> <text>`        | Send a message                               | `uv run python -m teleman send @user "hello"`              |
-| `add <user>`                | Add a contact                                | `uv run python -m teleman add @username`                   |
-| `privacy-set <key> <level>` | Set privacy (`everyone`/`contacts`/`nobody`) | `uv run python -m teleman privacy-set phone_number nobody` |
-| `lockdown`                  | Set ALL privacy to `nobody`                  | `uv run python -m teleman lockdown`                        |
-| `settings ttl <days>`       | Set account self-destruct TTL                | `uv run python -m teleman settings ttl 365`                |
-| `session-end <hash>`        | Terminate a session                          | `uv run python -m teleman session-end 123456789`           |
-| `web-end <hash>`            | Terminate a web session                      | `uv run python -m teleman web-end 123456789`               |
-| `web-end-all`               | Terminate all web sessions                   | `uv run python -m teleman web-end-all`                     |
-| `export <chat>`             | Export chat history (incremental)            | `uv run python -m teleman export "Chat Name"`              |
+| Command                                                | Description                                     | Example                                                                           |
+| ------------------------------------------------------ | ----------------------------------------------- | --------------------------------------------------------------------------------- |
+| `send <peer> <text>`                                   | Send a message                                  | `uv run python -m teleman send @user "hello"`                                     |
+| `add <user>`                                           | Add a contact                                   | `uv run python -m teleman add @username`                                          |
+| `privacy-set <key> <level>`                            | Set privacy (`everyone`/`contacts`/`nobody`)    | `uv run python -m teleman privacy-set phone_number nobody`                        |
+| `lockdown`                                             | Set ALL privacy to `nobody`                     | `uv run python -m teleman lockdown`                                               |
+| `settings ttl <days>`                                  | Set account self-destruct TTL                   | `uv run python -m teleman settings ttl 365`                                       |
+| `session-end <hash>`                                   | Terminate a session                             | `uv run python -m teleman session-end 123456789`                                  |
+| `web-end <hash>`                                       | Terminate a web session                         | `uv run python -m teleman web-end 123456789`                                      |
+| `web-end-all`                                          | Terminate all web sessions                      | `uv run python -m teleman web-end-all`                                            |
+| `sync <chat>`                                          | Forward catch-up only (requires existing state) | `uv run python -m teleman sync @example`                                          |
+| `sync <chat> --backfill [--since DATE] [--until DATE]` | Forward catch-up + fetch older messages         | `uv run python -m teleman sync @example --backfill --since 2025-08-01`            |
+| `sync <chat> --no-track`                               | Initial sync without auto-tracking              | `uv run python -m teleman sync @example --backfill --since 2025-08-01 --no-track` |
+| `sync --all`                                           | Sync every tracked chat, continue on error      | `uv run python -m teleman sync --all`                                             |
+| `track <chat>`                                         | Mark a chat as tracked                          | `uv run python -m teleman track @example`                                         |
+| `untrack <chat>`                                       | Unmark a chat from batch sync                   | `uv run python -m teleman untrack @example`                                       |
 
 ### Privacy keys for `privacy-set`
 
@@ -74,8 +81,20 @@ web-sessions    → {sessions: [{hash, domain, browser, platform, ip, region, da
 web-end         → {hash, domain}
 web-end-all     → {}
 export-list     → {chats: [{chat_id, title, type, username}, ...]}
-export          → {title, message_count, incremental}
+sync            → {title, new_count, backfilled_count, total_messages, resumed, checkpoint, bootstrap_required}
+sync --all      → {results: [{chat_id, title, ...sync fields}, ...], errors: [{chat_id, title, error}, ...]}
+tracked         → {chats: [{chat_id, title, type, username, newest_id, last_sync_date}, ...]}
+track/untrack   → {chat_id, title, tracked}
+checkpoints     → {chat_id, title, checkpoints: [{id, created_at, newest_id, prev_newest_id, delta_count}, ...]}
 ```
+
+## Sync primer
+
+- `sync <chat>` = forward catch-up only. Errors with `bootstrap_required: true` if no prior export.
+- `sync <chat> --backfill [--since DATE] [--until DATE]` = fetch older messages; also required for first-time bootstrap.
+- `sync --all` = batch over every tracked chat.
+- A checkpoint is written only when a forward sync had ≥1 new message. Backfills never write checkpoints.
+- Chats are `tracked: true` by default after first sync (use `--no-track` to opt out).
 
 ## How to handle `$ARGUMENTS`
 

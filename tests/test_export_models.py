@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from teleman.export.models import ChatMeta, ExportedMessage, ExportState
+from teleman.export.models import ChatMeta, Checkpoint, ExportedMessage, ExportState
 
 
 class TestChatMetaFromTelethon:
@@ -276,8 +276,27 @@ class TestExportedMessageFromTelethon:
 class TestExportState:
     def test_roundtrip(self) -> None:
         now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
-        state = ExportState(last_message_id=1042, last_export_date=now, total_messages=1042)
+        state = ExportState(newest_id=1042, oldest_id=1, last_sync_date=now, total_messages=1042)
         json_str = state.model_dump_json()
         restored = ExportState.model_validate_json(json_str)
-        assert restored.last_message_id == 1042
+        assert restored.newest_id == 1042
+        assert restored.oldest_id == 1
         assert restored.total_messages == 1042
+        assert restored.tracked is True
+
+    def test_tracked_defaults_true(self) -> None:
+        now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
+        state = ExportState.model_validate_json(
+            '{"newest_id": 1, "oldest_id": 1, "last_sync_date": "' + now.isoformat() + '", "total_messages": 1}'
+        )
+        assert state.tracked is True
+
+
+class TestCheckpoint:
+    def test_roundtrip(self) -> None:
+        now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
+        cp = Checkpoint(id=now, created_at=now, newest_id=500, prev_newest_id=400, delta_count=100)
+        restored = Checkpoint.model_validate_json(cp.model_dump_json())
+        assert restored.newest_id == 500
+        assert restored.prev_newest_id == 400
+        assert restored.delta_count == 100

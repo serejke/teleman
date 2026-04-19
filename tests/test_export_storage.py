@@ -4,10 +4,14 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from teleman.export.models import ChatMeta, ExportedMessage, ExportState
+from teleman.export.models import ChatMeta, Checkpoint, ExportedMessage, ExportState
 from teleman.export.storage import (
+    append_checkpoint,
     append_messages,
     get_chat_dir,
+    list_tracked_chat_dirs,
+    prepend_messages,
+    read_checkpoints,
     read_meta,
     read_state,
     write_meta,
@@ -52,15 +56,64 @@ class TestMetaIO:
 class TestStateIO:
     def test_roundtrip(self, tmp_path: Path) -> None:
         now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
-        state = ExportState(last_message_id=1042, last_export_date=now, total_messages=1042)
+        state = ExportState(newest_id=1042, oldest_id=1, last_sync_date=now, total_messages=1042)
         write_state(tmp_path, state)
         restored = read_state(tmp_path)
         assert restored is not None
-        assert restored.last_message_id == 1042
+        assert restored.newest_id == 1042
+        assert restored.oldest_id == 1
         assert restored.total_messages == 1042
+        assert restored.tracked is True
 
     def test_read_nonexistent(self, tmp_path: Path) -> None:
         assert read_state(tmp_path) is None
+
+
+class TestCheckpointIO:
+    def test_append_and_read(self, tmp_path: Path) -> None:
+        now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
+        cp1 = Checkpoint(id=now, created_at=now, newest_id=100, prev_newest_id=0, delta_count=100)
+        later = datetime(2026, 3, 25, 16, 0, tzinfo=UTC)
+        cp2 = Checkpoint(id=later, created_at=later, newest_id=250, prev_newest_id=100, delta_count=150)
+
+        append_checkpoint(tmp_path, cp1)
+        append_checkpoint(tmp_path, cp2)
+        restored = read_checkpoints(tmp_path)
+
+        assert len(restored) == 2
+        assert restored[0].newest_id == 100
+        assert restored[1].newest_id == 250
+        assert restored[1].prev_newest_id == 100
+
+    def test_read_nonexistent(self, tmp_path: Path) -> None:
+        assert read_checkpoints(tmp_path) == []
+
+
+class TestListTrackedChatDirs:
+    def test_filters_by_tracked_flag(self, tmp_path: Path) -> None:
+        exports = tmp_path / "exports"
+        exports.mkdir()
+        now = datetime(2026, 3, 24, 16, 0, tzinfo=UTC)
+
+        tracked_dir = exports / "111"
+        tracked_dir.mkdir()
+        write_state(
+            tracked_dir,
+            ExportState(newest_id=5, oldest_id=1, last_sync_date=now, total_messages=5, tracked=True),
+        )
+
+        untracked_dir = exports / "222"
+        untracked_dir.mkdir()
+        write_state(
+            untracked_dir,
+            ExportState(newest_id=5, oldest_id=1, last_sync_date=now, total_messages=5, tracked=False),
+        )
+
+        empty_dir = exports / "333"
+        empty_dir.mkdir()
+
+        result = list_tracked_chat_dirs(tmp_path)
+        assert result == [tracked_dir]
 
 
 class TestAppendMessages:
@@ -98,3 +151,31 @@ class TestAppendMessages:
         append_messages(tmp_path, [])
         path = tmp_path / "messages.jsonl"
         assert not path.exists()
+
+
+class TestPrependMessages:
+    def _make_msg(self, msg_id: int, text: str) -> ExportedMessage:
+        return ExportedMessage(
+            id=msg_id,
+            sender_id=111,
+            sender_name="Alice",
+            date=datetime(2026, 1, 15, 10, 30, tzinfo=UTC),
+            text=text,
+        )
+
+    def test_prepend_creates_file(self, tmp_path: Path) -> None:
+        prepend_messages(tmp_path, [self._make_msg(1, "Hello")])
+        path = tmp_path / "messages.jsonl"
+        assert path.exists()
+        line = path.read_text().strip()
+        assert json.loads(line)["text"] == "Hello"
+
+    def test_prepend_before_existing(self, tmp_path: Path) -> None:
+        append_messages(tmp_path, [self._make_msg(10, "later"), self._make_msg(11, "latest")])
+        prepend_messages(tmp_path, [self._make_msg(1, "first"), self._make_msg(2, "second")])
+        lines = (tmp_path / "messages.jsonl").read_text().strip().split("\n")
+        assert [json.loads(line)["id"] for line in lines] == [1, 2, 10, 11]
+
+    def test_empty_noop(self, tmp_path: Path) -> None:
+        prepend_messages(tmp_path, [])
+        assert not (tmp_path / "messages.jsonl").exists()

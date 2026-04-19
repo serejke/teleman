@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from teleman.export.models import Checkpoint
 from teleman.models import Message, User
 from teleman.privacy import PrivacyRule
 from teleman.sessions import Session
@@ -87,10 +88,60 @@ class ExportListResponse(BaseModel):
     chats: list[ExportListItem]
 
 
-class ExportResponse(BaseModel):
+class SyncResponse(BaseModel):
     title: str
-    message_count: int
-    incremental: bool
+    new_count: int
+    backfilled_count: int
+    total_messages: int
+    resumed: bool
+    checkpoint: Checkpoint | None = None
+    bootstrap_required: bool = False
+
+
+class BatchSyncItem(BaseModel):
+    chat_id: int
+    title: str
+    new_count: int
+    backfilled_count: int
+    total_messages: int
+    resumed: bool
+    checkpoint: Checkpoint | None = None
+
+
+class BatchSyncError(BaseModel):
+    chat_id: int
+    title: str | None = None
+    error: str
+
+
+class BatchSyncResponse(BaseModel):
+    results: list[BatchSyncItem]
+    errors: list[BatchSyncError]
+
+
+class TrackedChat(BaseModel):
+    chat_id: int
+    title: str
+    type: str
+    username: str | None = None
+    newest_id: int
+    last_sync_date: datetime
+
+
+class TrackedResponse(BaseModel):
+    chats: list[TrackedChat]
+
+
+class TrackResponse(BaseModel):
+    chat_id: int
+    title: str
+    tracked: bool
+
+
+class CheckpointsResponse(BaseModel):
+    chat_id: int
+    title: str
+    checkpoints: list[Checkpoint]
 
 
 class LinkItem(BaseModel):

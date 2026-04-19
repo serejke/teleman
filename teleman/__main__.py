@@ -4,7 +4,7 @@ import argparse
 import asyncio
 import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,10 @@ def _parse_user_id(raw: str) -> int | str:
         return int(raw)
     except ValueError:
         return raw
+
+
+def _parse_date(raw: str) -> datetime:
+    return datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=UTC)
 
 
 def _json_out(obj: Any) -> None:
@@ -122,7 +126,23 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("export-list", help="List chats available for export")
 
-    p = sub.add_parser("export", help="Export chat history (incremental)")
+    p = sub.add_parser("sync", help="Sync chat(s): forward catch-up + optional backfill")
+    p.add_argument("chat", nargs="*", help="Chat name or ID (omit with --all)")
+    p.add_argument("--all", action="store_true", help="Sync every tracked chat")
+    p.add_argument("--backfill", action="store_true", help="Also fetch older messages")
+    p.add_argument("--since", help="Backfill back to this date (YYYY-MM-DD)")
+    p.add_argument("--until", help="Filter out messages newer than this date (YYYY-MM-DD)")
+    p.add_argument("--no-track", action="store_true", help="Initial sync without tracking")
+
+    p = sub.add_parser("track", help="Mark a chat as tracked for batch sync")
+    p.add_argument("chat", nargs="+", help="Chat name or ID")
+
+    p = sub.add_parser("untrack", help="Unmark a chat from batch sync")
+    p.add_argument("chat", nargs="+", help="Chat name or ID")
+
+    sub.add_parser("tracked", help="List chats currently tracked for batch sync")
+
+    p = sub.add_parser("checkpoints", help="List sync checkpoints for a chat")
     p.add_argument("chat", nargs="+", help="Chat name or ID")
 
     p = sub.add_parser("links", help="Extract all links from an exported chat")
@@ -170,9 +190,37 @@ async def _run_command(client: TelemanClient, args: argparse.Namespace) -> None:
         _json_out(await commands.cmd_web_end_all(client))
     elif cmd == "export-list":
         _json_out(await commands.cmd_export_list(client))
-    elif cmd == "export":
-        query = " ".join(args.chat)
-        _json_out(await commands.cmd_export(client, query))
+    elif cmd == "sync":
+        if args.all:
+            if args.chat:
+                raise ValueError("Pass either a chat or --all, not both")
+            _json_out(await commands.cmd_sync_all(client))
+        else:
+            if not args.chat:
+                raise ValueError("Usage: sync <chat> [--backfill --since DATE] or sync --all")
+            query = " ".join(args.chat)
+            since = _parse_date(args.since) if args.since else None
+            until = _parse_date(args.until) if args.until else None
+            if (since or until) and not args.backfill:
+                raise ValueError("--since/--until require --backfill")
+            _json_out(
+                await commands.cmd_sync(
+                    client,
+                    query,
+                    backfill=args.backfill,
+                    since=since,
+                    until=until,
+                    track=not args.no_track,
+                )
+            )
+    elif cmd == "track":
+        _json_out(await commands.cmd_track(client, " ".join(args.chat)))
+    elif cmd == "untrack":
+        _json_out(await commands.cmd_untrack(client, " ".join(args.chat)))
+    elif cmd == "tracked":
+        _json_out(commands.cmd_tracked())
+    elif cmd == "checkpoints":
+        _json_out(await commands.cmd_checkpoints(client, " ".join(args.chat)))
     elif cmd == "links":
         after = datetime.strptime(args.after, "%Y-%m-%d") if args.after else None
         before = datetime.strptime(args.before, "%Y-%m-%d") if args.before else None

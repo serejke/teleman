@@ -12,9 +12,10 @@ Extend teleman from a real-time chat client into a **Telegram data platform**: e
 
 ### Layer 1: Export & Storage (MVP — this milestone)
 
-- Batch export of full chat history via Telethon
-- Incremental append (sync new messages since last export)
-- Raw JSON storage per chat — no database
+- Backward export of chat history (newest → oldest) via Telethon, bounded by `--since` / `--until`
+- Incremental resume: forward catch-up on new messages + backfill of older history
+- Raw JSON storage per chat, kept chronological on disk — no database
+- Per-chat `tracked` flag + append-only `checkpoints.jsonl` for managed sync (see `docs/specs/chat-checkpoints.md`)
 - Configurable download directory (project-local, gitignored)
 
 ### Layer 2: Structuring (future)
@@ -46,5 +47,5 @@ Extend teleman from a real-time chat client into a **Telegram data platform**: e
 
 - JSON-first storage — no database until proven necessary
 - Modular layers — each layer works independently
-- Append-only — never rewrite history, only add new messages
+- Chronological storage with dual growth — `messages.jsonl` may be appended (new messages) or prepended (backfilled older messages) via atomic rewrites. `checkpoints.jsonl` is strictly append-only.
 - Type-safe boundaries — raw Telethon objects never leak past the adapter layer

@@ -81,17 +81,21 @@ async def _input(prompt: str) -> str:
     return await asyncio.to_thread(input, prompt)
 
 
-def _parse_date_flags(args: list[str]) -> tuple[datetime | None, datetime | None, list[str]]:
-    """Parse --after and --before flags from args, return (after, before, remaining_args)."""
+def _parse_date_flags(
+    args: list[str],
+    flags: tuple[str, str] = ("--after", "--before"),
+) -> tuple[datetime | None, datetime | None, list[str]]:
+    """Parse two date flags from args, return (after/since, before/until, remaining_args)."""
+    after_flag, before_flag = flags
     after = None
     before = None
     remaining: list[str] = []
     i = 0
     while i < len(args):
-        if args[i] == "--after" and i + 1 < len(args):
+        if args[i] == after_flag and i + 1 < len(args):
             after = datetime.strptime(args[i + 1], "%Y-%m-%d")
             i += 2
-        elif args[i] == "--before" and i + 1 < len(args):
+        elif args[i] == before_flag and i + 1 < len(args):
             before = datetime.strptime(args[i + 1], "%Y-%m-%d")
             i += 2
         else:
@@ -451,8 +455,14 @@ async def run(client: TelemanClient) -> None:
                 print("  /nuke <peer>              — delete all messages (both sides) and remove chat")
                 print("  /report <user>            — report a user for abuse")
                 print()
-                print("  /export_list              — list chats available for export")
-                print("  /export <chat>            — export chat history (incremental)")
+                print("  /export_list              — list chats available for sync")
+                print("  /sync <chat> [--backfill [--since DATE] [--until DATE]] [--no-track]")
+                print("                            — sync chat history (forward + optional backfill)")
+                print("  /sync --all               — sync every tracked chat")
+                print("  /track <chat>             — mark a chat as tracked")
+                print("  /untrack <chat>           — unmark a chat from batch sync")
+                print("  /tracked                  — list tracked chats")
+                print("  /checkpoints <chat>       — list sync checkpoints for a chat")
                 print("  /links <chat> [--after YYYY-MM-DD] [--before YYYY-MM-DD]")
                 print("                            — extract all links from a chat")
                 print("  /quit                     — exit")
@@ -535,23 +545,40 @@ async def run(client: TelemanClient) -> None:
                 resp = await commands.cmd_export_list(client)
                 for i, c in enumerate(resp.chats, 1):
                     print(f"  {i}. {c.title} ({c.type}, {c.chat_id})")
-            elif cmd == "/export":
+            elif cmd == "/sync":
+                await _repl_sync(client, args)
+            elif cmd == "/track":
                 if not args:
-                    print("Usage: /export <chat name or ID>")
+                    print("Usage: /track <chat>")
                     continue
-                query = " ".join(args)
-
-                def on_progress(count: int) -> None:
-                    print(f"\r  Exporting... {count} messages", end="", flush=True)
-
-                from teleman.export.exporter import export_chat
-
-                title, count, incremental = await export_chat(client, query, on_progress)
-                print()
-                if incremental:
-                    print(f'  Synced {count} new messages from "{title}"')
-                else:
-                    print(f'  Exported {count} messages from "{title}"')
+                resp = await commands.cmd_track(client, " ".join(args))
+                print(f'  Tracking "{resp.title}" ({resp.chat_id})')
+            elif cmd == "/untrack":
+                if not args:
+                    print("Usage: /untrack <chat>")
+                    continue
+                resp = await commands.cmd_untrack(client, " ".join(args))
+                print(f'  Untracked "{resp.title}" ({resp.chat_id})')
+            elif cmd == "/tracked":
+                resp = commands.cmd_tracked()
+                if not resp.chats:
+                    print("  No tracked chats.")
+                for c in resp.chats:
+                    print(
+                        f"  {c.title} ({c.chat_id}) — newest {c.newest_id}, "
+                        f"synced {c.last_sync_date:%Y-%m-%d %H:%M} UTC"
+                    )
+            elif cmd == "/checkpoints":
+                if not args:
+                    print("Usage: /checkpoints <chat>")
+                    continue
+                resp = await commands.cmd_checkpoints(client, " ".join(args))
+                print(f'  "{resp.title}" ({resp.chat_id}): {len(resp.checkpoints)} checkpoints')
+                for cp in resp.checkpoints:
+                    print(
+                        f"    {cp.id:%Y-%m-%d %H:%M} UTC — +{cp.delta_count} msgs "
+                        f"(id {cp.prev_newest_id} → {cp.newest_id})"
+                    )
             elif cmd == "/links":
                 if not args:
                     print("Usage: /links <chat> [--after YYYY-MM-DD] [--before YYYY-MM-DD]")
@@ -570,6 +597,67 @@ async def run(client: TelemanClient) -> None:
                 print(f"Unknown command: {cmd}. Type /help for usage.")
         except Exception as exc:
             print(f"Error: {exc}")
+
+
+async def _repl_sync(client: TelemanClient, args: list[str]) -> None:
+    from datetime import UTC
+
+    from teleman import commands
+
+    if "--all" in args:
+        if len(args) > 1:
+            print("Usage: /sync --all")
+            return
+        resp = await commands.cmd_sync_all(client)
+        for r in resp.results:
+            cp = f", checkpoint {r.checkpoint.id:%Y-%m-%d %H:%M}" if r.checkpoint is not None else ""
+            print(f'  "{r.title}" ({r.chat_id}): +{r.new_count} new, {r.total_messages} total{cp}')
+        for err in resp.errors:
+            print(f"  ERROR {err.chat_id}: {err.error}")
+        return
+
+    backfill = "--backfill" in args
+    no_track = "--no-track" in args
+    filtered = [a for a in args if a not in ("--backfill", "--no-track")]
+    after, before, chat_parts = _parse_date_flags(filtered, ("--since", "--until"))
+    if not chat_parts:
+        print("Usage: /sync <chat> [--backfill [--since YYYY-MM-DD] [--until YYYY-MM-DD]]")
+        print("       /sync --all")
+        return
+    if (after or before) and not backfill:
+        print("--since/--until require --backfill")
+        return
+    query = " ".join(chat_parts)
+    since = after.replace(tzinfo=UTC) if after else None
+    until = before.replace(tzinfo=UTC) if before else None
+
+    def on_progress(new_count: int, backfill_count: int) -> None:
+        print(
+            f"\r  Syncing... +{new_count} new, +{backfill_count} backfilled",
+            end="",
+            flush=True,
+        )
+
+    from teleman.export.sync import sync_chat
+
+    result = await sync_chat(
+        client,
+        query,
+        backfill=backfill,
+        since=since,
+        until=until,
+        track=not no_track,
+        on_progress=on_progress,
+    )
+    print()
+    if result.bootstrap_required:
+        print(f'  "{result.title}" has no export yet. Use /sync <chat> --backfill --since <date> to bootstrap.')
+        return
+    cp_str = f", checkpoint {result.checkpoint.id:%Y-%m-%d %H:%M}" if result.checkpoint is not None else ""
+    print(
+        f'  Synced "{result.title}": +{result.new_count} new, '
+        f"+{result.backfilled_count} backfilled ({result.total_messages} total){cp_str}"
+    )
 
 
 async def _repl_settings(client: TelemanClient, section: str | None) -> None:

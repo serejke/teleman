@@ -4,18 +4,30 @@ from datetime import datetime
 
 from teleman.client import TelemanClient
 from teleman.contacts import add_contact, get_peer, peer_name
-from teleman.export.exporter import export_chat as _export_chat
-from teleman.export.resolver import list_dialogs
+from teleman.export.resolver import list_dialogs, resolve_chat
+from teleman.export.storage import (
+    get_chat_dir,
+    get_data_dir,
+    list_tracked_chat_dirs,
+    read_checkpoints,
+    read_meta,
+    read_state,
+    write_state,
+)
+from teleman.export.sync import sync_chat as _sync_chat
 from teleman.messages import get_messages, send_message
 from teleman.models import User
 from teleman.responses import (
     AddContactResponse,
+    BatchSyncError,
+    BatchSyncItem,
+    BatchSyncResponse,
     ChatInfo,
     ChatsResponse,
+    CheckpointsResponse,
     ContactsResponse,
     ExportListItem,
     ExportListResponse,
-    ExportResponse,
     LinkItem,
     LinksResponse,
     LockdownResponse,
@@ -25,6 +37,10 @@ from teleman.responses import (
     SessionEndResponse,
     SessionsResponse,
     SettingsOverview,
+    SyncResponse,
+    TrackedChat,
+    TrackedResponse,
+    TrackResponse,
     WebEndAllResponse,
     WebEndResponse,
     WebSessionsResponse,
@@ -200,9 +216,110 @@ async def cmd_export_list(client: TelemanClient) -> ExportListResponse:
     return ExportListResponse(chats=items)
 
 
-async def cmd_export(client: TelemanClient, query: str) -> ExportResponse:
-    title, count, incremental = await _export_chat(client, query)
-    return ExportResponse(title=title, message_count=count, incremental=incremental)
+async def cmd_sync(
+    client: TelemanClient,
+    query: str,
+    *,
+    backfill: bool = False,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    track: bool = True,
+) -> SyncResponse:
+    result = await _sync_chat(
+        client,
+        query,
+        backfill=backfill,
+        since=since,
+        until=until,
+        track=track,
+    )
+    return SyncResponse(
+        title=result.title,
+        new_count=result.new_count,
+        backfilled_count=result.backfilled_count,
+        total_messages=result.total_messages,
+        resumed=result.resumed,
+        checkpoint=result.checkpoint,
+        bootstrap_required=result.bootstrap_required,
+    )
+
+
+async def cmd_sync_all(client: TelemanClient) -> BatchSyncResponse:
+    data_dir = get_data_dir()
+    tracked_dirs = list_tracked_chat_dirs(data_dir)
+
+    results: list[BatchSyncItem] = []
+    errors: list[BatchSyncError] = []
+
+    for chat_dir in tracked_dirs:
+        chat_id = int(chat_dir.name)
+        meta = read_meta(chat_dir)
+        title = meta.title if meta else chat_dir.name
+        try:
+            result = await _sync_chat(client, str(chat_id), backfill=False)
+            results.append(
+                BatchSyncItem(
+                    chat_id=chat_id,
+                    title=result.title,
+                    new_count=result.new_count,
+                    backfilled_count=result.backfilled_count,
+                    total_messages=result.total_messages,
+                    resumed=result.resumed,
+                    checkpoint=result.checkpoint,
+                )
+            )
+        except Exception as exc:
+            errors.append(BatchSyncError(chat_id=chat_id, title=title, error=str(exc)))
+
+    return BatchSyncResponse(results=results, errors=errors)
+
+
+async def _set_tracked(client: TelemanClient, query: str, tracked: bool) -> TrackResponse:
+    meta, _entity = await resolve_chat(client, query)
+    chat_dir = get_chat_dir(get_data_dir(), meta.chat_id)
+    state = read_state(chat_dir)
+    if state is None:
+        raise ValueError(f'No export state for "{meta.title}". Run `sync --backfill --since <date>` to bootstrap.')
+    state.tracked = tracked
+    write_state(chat_dir, state)
+    return TrackResponse(chat_id=meta.chat_id, title=meta.title, tracked=tracked)
+
+
+async def cmd_track(client: TelemanClient, query: str) -> TrackResponse:
+    return await _set_tracked(client, query, tracked=True)
+
+
+async def cmd_untrack(client: TelemanClient, query: str) -> TrackResponse:
+    return await _set_tracked(client, query, tracked=False)
+
+
+def cmd_tracked() -> TrackedResponse:
+    data_dir = get_data_dir()
+    tracked_dirs = list_tracked_chat_dirs(data_dir)
+    chats: list[TrackedChat] = []
+    for chat_dir in tracked_dirs:
+        meta = read_meta(chat_dir)
+        state = read_state(chat_dir)
+        if meta is None or state is None:
+            continue
+        chats.append(
+            TrackedChat(
+                chat_id=meta.chat_id,
+                title=meta.title,
+                type=meta.type,
+                username=meta.username,
+                newest_id=state.newest_id,
+                last_sync_date=state.last_sync_date,
+            )
+        )
+    return TrackedResponse(chats=chats)
+
+
+async def cmd_checkpoints(client: TelemanClient, query: str) -> CheckpointsResponse:
+    meta, _entity = await resolve_chat(client, query)
+    chat_dir = get_chat_dir(get_data_dir(), meta.chat_id)
+    checkpoints = read_checkpoints(chat_dir)
+    return CheckpointsResponse(chat_id=meta.chat_id, title=meta.title, checkpoints=checkpoints)
 
 
 def cmd_links(

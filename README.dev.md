@@ -72,22 +72,22 @@ ACCOUNTS_DIR=accounts
 
 ### Interactive REPL
 
-| Command                      | Description                         |
-| ---------------------------- | ----------------------------------- |
-| `/me`                        | Show current account info           |
-| `/chats`                     | List recent dialogs                 |
-| `/chat <user>`               | Open a chat with a user or group    |
-| `/add <user>`                | Add contact                         |
-| `/contacts`                  | List contacts                       |
-| `/nuke <user>`               | Delete all messages and remove chat |
-| `/privacy`                   | Show privacy settings               |
-| `/privacy_set <key> <level>` | Set a privacy key                   |
-| `/lockdown`                  | Set all privacy to `nobody`         |
-| `/settings`                  | Security and privacy summary        |
-| `/report <user>`             | Report a user for abuse             |
-| `/export <chat>`             | Export chat history to JSONL        |
-| `/export_list`               | List exported chats                 |
-| `/quit`                      | Exit                                |
+| Command                                                    | Description                                     |
+| ---------------------------------------------------------- | ----------------------------------------------- |
+| `/me`                                                      | Show current account info                       |
+| `/chats`                                                   | List recent dialogs                             |
+| `/chat <user>`                                             | Open a chat with a user or group                |
+| `/add <user>`                                              | Add contact                                     |
+| `/contacts`                                                | List contacts                                   |
+| `/nuke <user>`                                             | Delete all messages and remove chat             |
+| `/privacy`                                                 | Show privacy settings                           |
+| `/privacy_set <key> <level>`                               | Set a privacy key                               |
+| `/lockdown`                                                | Set all privacy to `nobody`                     |
+| `/settings`                                                | Security and privacy summary                    |
+| `/report <user>`                                           | Report a user for abuse                         |
+| `/export <chat> [--since YYYY-MM-DD] [--until YYYY-MM-DD]` | Export chat history (newest first, incremental) |
+| `/export_list`                                             | List exported chats                             |
+| `/quit`                                                    | Exit                                            |
 
 `<user>` can be a numeric Telegram ID (e.g. `123456789`) or a username (e.g. `@example`).
 
@@ -106,7 +106,7 @@ uv run python -m teleman sessions
 uv run python -m teleman session-end <hash>
 uv run python -m teleman settings [2fa|ttl|privacy|sessions|web]
 uv run python -m teleman settings ttl 365
-uv run python -m teleman export "Chat Name"
+uv run python -m teleman export "Chat Name" --since 2025-08-01
 uv run python -m teleman export-list
 uv run python -m teleman links "Chat Name" --after 2026-01-01
 ```
@@ -119,10 +119,27 @@ Exports live in `data/exports/<chat_id>/`:
 data/exports/
   123456789/
     meta.json         # Chat metadata (title, type, participants)
-    messages.jsonl    # One JSON object per line, chronological
-    state.json        # Incremental export cursor
+    messages.jsonl    # One JSON object per line, chronological (oldest first)
+    state.json        # Incremental export state: {newest_id, oldest_id, ...}
     topics.json       # Forum topics (if applicable)
 ```
+
+### Export direction
+
+Export always walks Telegram newest → oldest (backwards). The on-disk
+`messages.jsonl` is kept chronological (oldest at the top, newest at the bottom):
+
+- **Forward catch-up** on resume (messages with id > `state.newest_id`) is
+  streamed to the end of the file.
+- **Backfill** of older messages (bounded by `--since`) is buffered in memory
+  during the run, then prepended to the top of the file via an atomic
+  temp-file rename. Interrupting the process mid-backfill loses that run's
+  buffered messages; re-run to retry.
+
+Date filters:
+
+- `--since YYYY-MM-DD` — stop walking backwards at this date (UTC).
+- `--until YYYY-MM-DD` — filter out messages newer than this date.
 
 Each message in `messages.jsonl`:
 

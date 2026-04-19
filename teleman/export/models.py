@@ -219,6 +219,16 @@ class ForumTopic(BaseModel):
 
 
 class ExportState(BaseModel):
-    last_message_id: int
-    last_export_date: datetime
+    newest_id: int
+    oldest_id: int
+    last_sync_date: datetime
     total_messages: int
+    tracked: bool = True
+
+
+class Checkpoint(BaseModel):
+    id: datetime  # ISO timestamp of the newest message in the delta
+    created_at: datetime  # wall-clock time of the sync run
+    newest_id: int
+    prev_newest_id: int
+    delta_count: int

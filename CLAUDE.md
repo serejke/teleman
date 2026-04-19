@@ -41,11 +41,11 @@ uv run ruff format --check teleman/ tests/
   - `sessions.py` — multi-account session handling
   - `proxy.py` — per-account proxy configuration
   - `report.py` — abuse reporting
-  - `export/` — chat history export
-    - `exporter.py` — batch and incremental export logic
-    - `models.py` — export data models
+  - `export/` — chat history export & sync
+    - `sync.py` — forward catch-up + optional backfill; writes checkpoints
+    - `models.py` — export data models (`ExportState`, `Checkpoint`, …)
     - `resolver.py` — entity resolution
-    - `storage.py` — JSON file storage
+    - `storage.py` — JSONL file storage (messages, checkpoints, state, meta)
 
 ## Skills
 
@@ -58,3 +58,4 @@ uv run ruff format --check teleman/ tests/
 ## Git Conventions
 
 - Do not add Claude Code footer to commit messages
+- Commit after each logical change (one feature / bugfix / refactor = one commit). Don't batch unrelated edits; don't leave finished work uncommitted waiting for more.
