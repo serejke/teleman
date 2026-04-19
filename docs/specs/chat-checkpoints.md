@@ -27,7 +27,6 @@ Turn teleman's one-shot chat export into a managed **sync** over tracked chats, 
 Each chat has a `tracked: bool` flag stored in its `state.json`. Only tracked chats participate in batch sync.
 
 - Default: **true** when a chat is first synced (low friction).
-- `teleman sync <chat> --no-track` — initial sync without tracking (for one-off exports).
 - `teleman track <chat>` / `teleman untrack <chat>` — flip the flag without syncing.
 - `teleman tracked` — list all tracked chats.
 - **Existing exports** (pre-migration) are auto-tracked on first run of the new code.
