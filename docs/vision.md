@@ -6,16 +6,16 @@ Interactive CLI client for Telegram (Telethon-based). Supports chatting, contact
 
 ## Direction
 
-Extend teleman from a real-time chat client into a **Telegram data platform**: export, store, structure, and analyze chat history. The interactive CLI remains as-is. New capabilities are added as modular layers.
+Extend teleman from a real-time chat client into a **Telegram data platform**: sync, store, structure, and analyze chat history. The interactive CLI remains as-is. New capabilities are added as modular layers.
 
 ## Architecture Layers
 
-### Layer 1: Export & Storage (MVP — this milestone)
+### Layer 1: Sync & Storage (MVP — this milestone)
 
-- Backward export of chat history (newest → oldest) via Telethon, bounded by `--since` / `--until`
-- Incremental resume: forward catch-up on new messages + backfill of older history
+- Checkpointed chat sync via Telethon: forward catch-up on new messages + backward fill of older history (bounded by `--since` / `--until`)
 - Raw JSON storage per chat, kept chronological on disk — no database
-- Per-chat `tracked` flag + append-only `checkpoints.jsonl` for managed sync (see `docs/specs/chat-checkpoints.md`)
+- Per-chat `tracked` flag + append-only `checkpoints.jsonl` for managed sync
+- Batch `sync --all` across every tracked chat
 - Configurable download directory (project-local, gitignored)
 
 ### Layer 2: Structuring (future)

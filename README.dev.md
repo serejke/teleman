@@ -72,22 +72,28 @@ ACCOUNTS_DIR=accounts
 
 ### Interactive REPL
 
-| Command                                                    | Description                                     |
-| ---------------------------------------------------------- | ----------------------------------------------- |
-| `/me`                                                      | Show current account info                       |
-| `/chats`                                                   | List recent dialogs                             |
-| `/chat <user>`                                             | Open a chat with a user or group                |
-| `/add <user>`                                              | Add contact                                     |
-| `/contacts`                                                | List contacts                                   |
-| `/nuke <user>`                                             | Delete all messages and remove chat             |
-| `/privacy`                                                 | Show privacy settings                           |
-| `/privacy_set <key> <level>`                               | Set a privacy key                               |
-| `/lockdown`                                                | Set all privacy to `nobody`                     |
-| `/settings`                                                | Security and privacy summary                    |
-| `/report <user>`                                           | Report a user for abuse                         |
-| `/export <chat> [--since YYYY-MM-DD] [--until YYYY-MM-DD]` | Export chat history (newest first, incremental) |
-| `/export_list`                                             | List exported chats                             |
-| `/quit`                                                    | Exit                                            |
+| Command                                                                  | Description                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------- |
+| `/me`                                                                    | Show current account info                       |
+| `/chats`                                                                 | List recent dialogs                             |
+| `/chat <user>`                                                           | Open a chat with a user or group                |
+| `/add <user>`                                                            | Add contact                                     |
+| `/contacts`                                                              | List contacts                                   |
+| `/nuke <user>`                                                           | Delete all messages and remove chat             |
+| `/privacy`                                                               | Show privacy settings                           |
+| `/privacy_set <key> <level>`                                             | Set a privacy key                               |
+| `/lockdown`                                                              | Set all privacy to `nobody`                     |
+| `/settings`                                                              | Security and privacy summary                    |
+| `/report <user>`                                                         | Report a user for abuse                         |
+| `/export_list`                                                           | List chats available for sync                   |
+| `/sync <chat> [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all-history]` | Forward catch-up + backward fill                |
+| `/sync --all`                                                            | Sync every tracked chat (forward catch-up only) |
+| `/track <chat>`                                                          | Mark a chat as tracked for batch sync           |
+| `/untrack <chat>`                                                        | Unmark a chat from batch sync                   |
+| `/tracked`                                                               | List tracked chats                              |
+| `/checkpoints <chat>`                                                    | List sync checkpoints for a chat                |
+| `/links <chat> [--after YYYY-MM-DD] [--before YYYY-MM-DD]`               | Extract links from a synced chat                |
+| `/quit`                                                                  | Exit                                            |
 
 `<user>` can be a numeric Telegram ID (e.g. `123456789`) or a username (e.g. `@example`).
 
@@ -106,38 +112,50 @@ uv run python -m teleman sessions
 uv run python -m teleman session-end <hash>
 uv run python -m teleman settings [2fa|ttl|privacy|sessions|web]
 uv run python -m teleman settings ttl 365
-uv run python -m teleman export "Chat Name" --since 2025-08-01
 uv run python -m teleman export-list
+uv run python -m teleman sync "Chat Name" --since 2025-08-01
+uv run python -m teleman sync --all
+uv run python -m teleman track "Chat Name"
+uv run python -m teleman untrack "Chat Name"
+uv run python -m teleman tracked
+uv run python -m teleman checkpoints "Chat Name"
 uv run python -m teleman links "Chat Name" --after 2026-01-01
 ```
 
-## Export format
+First-ever sync of a chat requires `--since YYYY-MM-DD` (or `--all-history` to
+intentionally fetch everything) — a safety guard against accidental
+full-history fetches.
 
-Exports live in `data/exports/<chat_id>/`:
+## Sync format
+
+Synced chats live in `data/exports/<chat_id>/`:
 
 ```
 data/exports/
   123456789/
-    meta.json         # Chat metadata (title, type, participants)
-    messages.jsonl    # One JSON object per line, chronological (oldest first)
-    state.json        # Incremental export state: {newest_id, oldest_id, ...}
-    topics.json       # Forum topics (if applicable)
+    meta.json           # Chat metadata (title, type, participants)
+    messages.jsonl      # One JSON object per line, chronological (oldest first)
+    state.json          # Sync state: {newest_id, oldest_id, tracked, ...}
+    checkpoints.jsonl   # Append-only log, one entry per newest_id advance
+    topics.json         # Forum topics (if applicable)
 ```
 
-### Export direction
+### Sync direction
 
-Export always walks Telegram newest → oldest (backwards). The on-disk
+Sync always walks Telegram newest → oldest (backwards). The on-disk
 `messages.jsonl` is kept chronological (oldest at the top, newest at the bottom):
 
 - **Forward catch-up** on resume (messages with id > `state.newest_id`) is
-  streamed to the end of the file.
+  streamed to the end of the file. Every advance of `newest_id` writes an
+  entry to `checkpoints.jsonl`.
 - **Backward fill** of older messages (bounded by `--since`) streams batches
   to `messages.backfill.jsonl` in iteration order (newest-first) as they
   arrive. On completion, the tmp file is stream-reversed in bounded memory
   (~64 KB blocks) and prepended to the top of `messages.jsonl` via an
   atomic temp-file rename. If the process is interrupted mid-fill, the tmp
   file is preserved; re-running the same `sync <chat> --since DATE`
-  resumes from the oldest message already buffered there.
+  resumes from the oldest message already buffered there. Backward fills
+  do not produce checkpoints.
 
 Date filters:
 
@@ -166,10 +184,10 @@ Each message in `messages.jsonl`:
 
 ## Analysis
 
-Analysis skills operate on exported data. No Telegram connection needed.
+Analysis skills operate on synced chat data. No Telegram connection needed.
 
 ```bash
-uv run python -m analysis --scan                         # List exports
+uv run python -m analysis --scan                         # List synced chats
 uv run python -m analysis --list                         # List skills
 uv run python -m analysis <skill> <chat>                 # Run one skill
 uv run python -m analysis --all <chat>                   # Run all skills
@@ -207,13 +225,13 @@ teleman/                # Main package
   settings.py           # Security/privacy summary
   sessions.py           # Multi-account session handling
   proxy.py              # Per-account proxy config
-  links.py              # Link extraction from exports
+  links.py              # Link extraction from synced chats
   report.py             # Abuse reporting
-  export/               # Chat history export
-    exporter.py         # Batch and incremental export
-    models.py           # Export data models
+  export/               # Chat history sync & storage
+    sync.py             # Forward catch-up + backward fill, checkpoints
+    models.py           # Sync data models (ExportState, Checkpoint, …)
     resolver.py         # Entity resolution
-    storage.py          # JSONL file storage
+    storage.py          # JSONL file storage (messages, checkpoints, state, meta)
 
 analysis/               # Offline analysis engine
   __main__.py           # CLI runner
